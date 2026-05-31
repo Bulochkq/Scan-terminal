@@ -1,0 +1,272 @@
+<!DOCTYPE html>
+<html>
+  <head>
+    <base target="_top">
+    <!-- External libraries -->
+    <script src="//ajax.googleapis.com/ajax/libs/jquery/1.9.1/jquery.min.js"></script>
+    <script src="https://unpkg.com/html5-qrcode" type="text/javascript"></script>
+    <script src="https://cdn.sheetjs.com/xlsx-0.20.1/package/dist/xlsx.full.min.js"></script>
+    <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=0">
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;600;800;900&display=swap" rel="stylesheet">
+    
+    <!-- WE INCLUDE CSS FILE HERE -->
+    <?!= include('Styles'); ?>
+  </head>
+  <body>
+    <div class="app-container">
+        
+        <div id="adminProcessOverlay" class="hidden">
+            <div class="admin-loader"></div>
+            <div id="adminLoadingText" class="admin-loading-text">SPRACOVÁVAM...</div>
+        </div>
+
+        <!-- CUSTOM MESSAGE MODAL -->
+        <div id="msgModal" class="hidden">
+            <div class="sm-card popup-card">
+                <div class="sm-close" onclick="$('#msgModal').addClass('hidden')">✕</div>
+                <div class="sm-title" id="msgTitle">Správa</div>
+                <div id="msgText" style="margin-top:15px; font-size:14px; color:#374151; font-weight:600; line-height:1.5;"></div>
+                <button class="l-btn lb-go" onclick="$('#msgModal').addClass('hidden')" style="margin-top:20px;">OK</button>
+            </div>
+        </div>
+
+        <!-- CUSTOM PROMPT MODAL -->
+        <div id="promptModal" class="hidden">
+            <div class="sm-card popup-card">
+                <div class="sm-close" onclick="cancelPrompt()">✕</div>
+                <div class="sm-title" id="promptTitle">Otázka</div>
+                <div style="position:relative; margin-top:20px;">
+                    <input type="text" id="promptInput" placeholder="">
+                    <span id="promptEye" class="pass-eye hidden" onclick="togglePromptPass()">👁️</span>
+                </div>
+                <div style="display:flex; gap:10px; margin-top:20px;">
+                    <button class="l-btn lb-go" onclick="submitPrompt()" style="flex:1;">OK</button>
+                    <button class="l-btn lb-del" style="background:#f3f4f6; color:#374151; flex:1;" onclick="cancelPrompt()">ZRUŠIŤ</button>
+                </div>
+            </div>
+        </div>
+
+        <!-- CUSTOM CONFIRM MODAL -->
+        <div id="confirmModal" class="hidden">
+            <div class="sm-card popup-card">
+                <div class="sm-close" onclick="answerConfirm(false)">✕</div>
+                <div class="sm-title" id="confirmTitle">Potvrdenie</div>
+                <div id="confirmText" style="margin-top:10px; font-size:14px; color:#6b7280; font-weight:600;">Naozaj to chcete urobiť?</div>
+                <div style="display:flex; gap:10px; margin-top:20px;">
+                    <button id="confirmYesBtn" class="l-btn lb-go" onclick="answerConfirm(true)" style="flex:1;">ÁNO</button>
+                    <button class="l-btn lb-del" style="background:#f3f4f6; color:#374151; flex:1;" onclick="answerConfirm(false)">NIE</button>
+                </div>
+            </div>
+        </div>
+
+        <div id="setupOverlay" class="overlay-full">
+           <div id="setupGrid" class="setup-grid single-mode">
+             <div class="setup-card">
+                 <div>
+                    <img src="https://cdn-icons-png.flaticon.com/512/3050/3050174.png" class="su-logo-img" alt="Logo">
+                    <div class="su-title">SKLADOVÝ TERMINÁL</div>
+                    <div class="su-sub">2.80 editor fix attempt five</div>
+                    <div class="su-form">
+                      <div class="su-field">
+                        <div class="su-lbl">Užívateľ:</div>
+                        <div class="ctrl-row" id="userCtrlRow">
+                          <select id="setupUserSelect" class="custom-select"><option>⏳ Načítavam...</option></select>
+                          <button class="icon-btn-small add-btn" onclick="reqAddUser()">+</button>
+                          <button class="icon-btn-small del-btn" onclick="reqDelUser()">🗑</button>
+                        </div>
+                      </div>
+                      <div class="su-field">
+                          <div class="su-lbl">Pracovisko:</div>
+                          <div class="ctrl-row">
+                            <select id="setupSheetSelect" class="custom-select"><option>⏳ Načítavam...</option></select>
+                            <button class="icon-btn-small ref-btn" onclick="refreshSheetList()">🔄</button>
+                          </div>
+                      </div>
+                    </div>
+                 </div>
+                 <div style="display:flex; flex-direction:column; gap:8px;">
+                     <button class="l-btn lb-go" onclick="startApp()">SPUSTIŤ TERMINÁL 🚀</button>
+                     <button class="admin-btn-show" onclick="showAdminPanel()">🔐 ADMIN ZÓNA</button>
+                 </div>
+             </div>
+             
+             <!-- REDESIGNED ADMIN PANEL -->
+             <div class="setup-card admin-card hidden" id="adminCard">
+                 <div class="sm-close" onclick="closeAdminPanel()">✕</div>
+                 <div>
+                     <div class="admin-badge">🔐 Admin Centrum</div>
+                     <div class="su-form">
+                       
+                       <button class="ag-btn" onclick="reqCreateSheet()" style="width:100%; border:2px dashed #9ca3af; margin-bottom:10px;">
+                           <span class="ag-icon">➕</span>
+                           <span>NOVÝ SKLAD</span>
+                       </button>
+
+                       <div class="su-field">
+                           <div class="su-lbl" style="color:#b91c1c; text-align:center;">VYBERTE SKLAD:</div>
+                           <select id="importSheetSelect" class="custom-select" onchange="updateAdminState()" style="text-align:center; font-weight:800; border:2px solid #b91c1c;"><option>⏳ Načítavam...</option></select>
+                       </div>
+
+                       <div id="adminDependent" class="ag-disabled">
+                           <div class="admin-grid">
+                               <!-- ROW 1 -->
+                               <button class="ag-btn" onclick="openUniversalList('admin')">
+                                   <span class="ag-icon">✏️</span>
+                                   <span>EDITOR TOVARU</span>
+                               </button>
+                               
+                               <button class="ag-btn ag-red-imp" onclick="reqImport()">
+                                   <span class="ag-icon">📋</span>
+                                   <span>IMPORT (MANUÁL)</span>
+                               </button>
+
+                               <!-- ROW 2 -->
+                               <input type="file" id="xlsxInput" accept=".xlsx" style="display:none;" onchange="onXlsxSelected(this)">
+                               <button class="ag-btn" onclick="document.getElementById('xlsxInput').click()">
+                                   <span class="ag-icon">📂</span>
+                                   <span>IMPORT (SÚBOR)</span>
+                               </button>
+                               
+                               <button class="ag-btn" onclick="exportSheet()">
+                                   <span class="ag-icon">📥</span>
+                                   <span>STIAHNUŤ (XLSX)</span>
+                               </button>
+                           </div>
+                           <button class="l-btn lb-del" style="background:#fee2e2; color:#b91c1c; font-size:11px; margin-top:10px;" onclick="reqDeleteSheet()">🗑 ZMAZAŤ SKLAD</button>
+                       </div>
+                       
+                       <div style="height:1px; background:#e5e7eb; margin:10px 0;"></div>
+                       
+                       <div id="adminGlobal" style="display:grid; grid-template-columns: 1fr 1fr; gap:10px;">
+                           <button class="ag-btn" onclick="openBackups()" style="padding:10px;">
+                               <span class="ag-icon">⌚</span>
+                               <span>ZÁLOHY</span>
+                           </button>
+                           <button class="l-btn lb-del" style="background:#f3f4f6; color:#374151; font-size:11px;" onclick="reqClearLogs()">📜 ČISTIŤ LOGY</button>
+                       </div>
+                     </div>
+                 </div>
+             </div>
+           </div>
+        </div>
+
+        <!-- NEW UNIVERSAL LIST MODAL (REPLACES MISSING & EDITOR) -->
+        <div id="universalListModal" class="hidden">
+            <div class="sm-card modal-fullscreen">
+                <div class="sm-close" onclick="closeUniversalList()">✕</div>
+                <div class="modal-header">
+                    <div class="modal-title-row">
+                        <span class="mt-main" id="uniModalTitle">📦 ZOZNAM</span>
+                        <span class="mt-sub" id="uniSheetName">--</span>
+                    </div>
+                    <div class="uni-toolbar">
+                        <input type="text" id="uniSearchInput" class="uni-search" placeholder="🔍 Hľadať..." oninput="renderUniversalList()">
+                        
+                        <div style="min-width: 140px; flex: 1;">
+                            <select id="uniSortSelect" class="custom-select" onchange="renderUniversalList()">
+                                <option value="miss_prio">⚡ Priorita</option>
+                                <option value="name_asc">🔤 A-Z</option>
+                                <option value="name_desc">🔤 Z-A</option>
+                                <option value="qty_desc">📊 Max množstvo</option>
+                                <option value="qty_asc">📊 Min množstvo</option>
+                                <option value="plan_desc">📈 Max Plán</option>
+                                <option value="plan_asc">📈 Min Plán</option>
+                            </select>
+                        </div>
+
+                        <div class="uni-filter-wrapper">
+                            <button class="uni-filter-btn" onclick="$('.uni-filter-popover').toggleClass('active')">
+                                <span id="uniFilterLabel">Všetko</span>
+                                <span>▼</span>
+                            </button>
+                            <div class="uni-filter-popover">
+                                <label class="uf-row"><input type="checkbox" id="chkUniAll" checked onchange="toggleUniFilter('all')"> ✅ Všetko</label>
+                                <label class="uf-row"><input type="checkbox" id="chkUniMiss" onchange="toggleUniFilter('miss')"> ⚠️ Chýbajúce</label>
+                                <label class="uf-row"><input type="checkbox" id="chkUniExtra" onchange="toggleUniFilter('extra')"> 🔼 Naviac</label>
+                                <label class="uf-row"><input type="checkbox" id="chkUniDone" onchange="toggleUniFilter('done')"> 🟢 Hotové</label>
+                                <label class="uf-row"><input type="checkbox" id="chkUniNote" onchange="toggleUniFilter('note')"> 📝 S poznámkou</label>
+                            </div>
+                        </div>
+
+                        <div class="uni-btn-group">
+                            <button id="ubScan" class="uni-btn ub-scan" onclick="event.stopPropagation(); uniAction('scan', event)" disabled>📷</button>
+                            <button id="ubEdit" class="uni-btn ub-edit" onclick="event.stopPropagation(); uniAction('edit', event)" disabled>✏️</button>
+                            <button id="ubNote" class="uni-btn ub-note" onclick="event.stopPropagation(); uniAction('note', event)" disabled>📝</button>
+                            <button id="ubImg" class="uni-btn ub-img" onclick="event.stopPropagation(); uniAction('img', event)" disabled>🖼️</button>
+                            <button id="ubAdd" class="uni-btn ub-add" onclick="event.stopPropagation(); uniAction('add', event)">➕</button>
+                        </div>
+                    </div>
+                </div>
+                <div class="full-log-list" id="uniListContainer"></div>
+            </div>
+        </div>
+
+        <!-- POPUP EDIT SINGLE ITEM -->
+        <div id="editorEditModal" class="hidden">
+            <div class="sm-card popup-card">
+                <div class="sm-close" onclick="closeEditItemModal()">✕</div>
+                <div class="sm-title" id="eimTitle">UPRAVIŤ TOVAR</div>
+                <div class="su-form" style="margin-top:20px;">
+                    <input type="hidden" id="editRowId">
+                    <div class="ed-row-main">
+                        <div class="ed-label">Názov Tovaru</div>
+                        <input type="text" id="editName" class="ed-field">
+                    </div>
+                    <div class="ed-cols-2">
+                        <div><div class="ed-label">PLU</div><input type="text" id="editPlu" class="ed-field"></div>
+                        <div><div class="ed-label">SKU (Kód)</div><input type="text" id="editCode" class="ed-field"></div>
+                    </div>
+                    <div class="ed-row-main">
+                        <div class="ed-label">EAN</div>
+                        <input type="text" id="editEan" class="ed-field">
+                    </div>
+                    <div class="ed-cols-2">
+                        <div><div class="ed-label">PLÁN</div><input type="number" id="editPlan" class="ed-field" style="text-align:center; font-weight:800;"></div>
+                        <div><div class="ed-label" style="color:#2563eb;">REALITA</div><input type="number" id="editReal" class="ed-field" style="text-align:center; font-weight:800; color:#2563eb; border-color:#bfdbfe;"></div>
+                    </div>
+                    <div style="display:flex; gap:10px;">
+                        <button class="l-btn lb-go" onclick="saveEditItem()" style="flex:2;">💾 ULOŽIŤ</button>
+                        <button id="btnDelItem" class="l-btn lb-del" onclick="deleteEditItem()" style="flex:1;">🗑</button>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <!-- BACKUP MANAGER MODAL -->
+        <div id="backupModal" class="hidden">
+            <div class="sm-card modal-fullscreen">
+                <div class="sm-close" onclick="closeBackups()">✕</div>
+                <div class="modal-header">
+                    <div class="modal-title-row">
+                        <span class="mt-main">⌚ ZÁLOHY</span>
+                        <span class="mt-sub">História vymazaní / úprav</span>
+                    </div>
+                    <div class="modal-toolbar-row">
+                        <input type="text" id="backupSearchInput" placeholder="🔍 Hľadať bekap..." oninput="filterBackups()">
+                        <select id="backupSortSelect" class="custom-select" onchange="filterBackups()">
+                            <option value="date_desc">📅 Najnovšie</option>
+                            <option value="date_asc">📅 Najstaršie</option>
+                            <option value="name_asc">🔤 Názov (A-Z)</option>
+                        </select>
+                    </div>
+                </div>
+                <div class="full-log-list" id="backupList"></div>
+            </div>
+        </div>
+        
+        <div id="statsModal" class="hidden"><div class="sm-card popup-card"><div class="sm-close" onclick="closeStats()">✕</div><div class="sm-title">📊 ŠTATISTIKA SKLADU</div><div id="statsSheetName" class="sm-sheet-label">--</div><div class="stats-card"><div class="prog-w"><div id="progBar" class="prog-f"></div></div><div class="gs-tab"><div class="gs-row"><span>Plán:</span><span id="qPlan">0</span></div><div class="gs-row"><span>Real:</span><span class="c-green" id="qReal">0</span></div><div class="gs-row"><span class="c-red">Chýba:</span><span class="c-red" id="qMiss">0</span></div><div class="gs-row"><span class="c-orange">Naviac:</span><span class="c-orange" id="qExtra">0</span></div><div class="gs-row" style="grid-column: 1 / -1; margin-top:5px; border-top:1px solid #f3f4f6; padding-top:4px; text-align:center; color:#6b7280;">Hotové položky: <span id="qFinished" style="color:#374151; font-weight:800;">0 / 0</span></div></div></div></div></div>
+        <div id="localSettingsModal" class="hidden"><div class="sm-card popup-card"><div class="sm-close" onclick="closeLocalSettings()">✕</div><div class="sm-title">⚙️ NASTAVENIA</div><div class="sm-sub">Platí len pre tento prehliadač</div><div class="su-form"><div class="toggle-row"><div class="toggle-lbl">Povoliť Zoom efekt</div><input type="checkbox" id="zoomToggleCheck" checked></div><div class="su-field"><div class="su-lbl" style="text-align:center;">Dĺžka trvania:</div><div id="rangeVal">1.0 s</div><input type="range" id="localZoomRange" min="0.5" max="5.0" step="0.1" value="1.0" oninput="updateRangeLabel(this.value)"></div><button class="l-btn lb-go" onclick="saveLocalSettings()">💾 ULOŽIŤ</button></div></div></div>
+        <div id="logModal" class="hidden"><div class="sm-card modal-fullscreen"><div class="sm-close" onclick="closeLog()">✕</div><div class="modal-header"><div class="modal-title-row"><span class="mt-main">📜 HISTÓRIA</span><span class="mt-sub" id="logSheetName">Sklad</span></div></div><div class="full-log-list" id="fullLogList"></div></div></div>
+        
+        <div id="flashOverlay" class="hidden f-blue" onclick="hideFlash()"><div class="f-label">PLU</div><div id="flashCode" class="f-val">0000</div><div id="flashSkuGroup" class="f-sub-group"><span>SKU: <span id="flashSku">--</span></span><span>EAN: <span id="flashEan">--</span></span></div><div id="flashName" class="f-text">...</div></div>
+        <div id="camera-fullscreen"><div id="reader"></div><div class="cam-ui"><div id="camSelectWrapper"><select id="camSelect" class="custom-select" style="background:rgba(0,0,0,0.6); color:white; border-color:rgba(255,255,255,0.3);" onchange="changeCamera()"></select></div><div class="cam-controls"><button id="camFlash" class="cam-btn hidden" onclick="toggleFlash()">⚡</button><button id="camClose" class="cam-btn" onclick="stopCam()">✕</button></div></div></div>
+        <div class="header-wrapper"><div class="app-card header-card"><div id="conflictBanner" class="hidden">⚠️ POZOR! Tu pracuje aj: <span id="conflictUser"></span></div><div class="app-info-bar"><div class="info-left"><div class="info-item">👤 <span id="infoUser" class="info-val">--</span></div><div class="info-item">📂 <span id="infoSheet" class="info-val">--</span></div></div><div id="syncStatus" class="status-pill s-ok">🟢 ONLINE</div></div><div class="input-group"><input type="text" id="codeInput" placeholder="SKENOVAŤ..." inputmode="none"><button id="manualToggleBtn" class="icon-btn" onclick="toggleKey()">⌨️</button><button id="cameraBtn" class="icon-btn" onclick="startCam()">📷</button></div><div id="readyIndicator">PRIPRAVENÝ</div></div></div>
+        <div class="pc-log-area" id="pcLogArea"><div class="log-list" id="pcLogList"><div class="log-placeholder">Čakám na akcie...</div></div></div>
+        <div class="content-area" id="contentArea"><div id="waitingMsg">Naskenujte tovar alebo<br>zadajte kód...</div><div id="errCard" class="hidden shake-anim"></div><div id="productCard" class="hidden app-card product-card"><button class="close-x" onclick="closeUI()">✕</button><div id="pBrand" class="p-brand hidden"></div><div class="p-title" id="pName">Name</div><div class="p-meta"><div class="meta-row"><span>PLU:</span><span class="meta-val code-pill" id="pCode">--</span></div><div class="meta-row"><span>SKU:</span><span class="meta-val code-pill" id="pMpn">--</span></div><div class="meta-row"><span>EAN:</span><span class="meta-val code-pill" id="pEan">--</span></div></div><div class="p-stats-row"><div class="stat-box"><div class="ps-lbl">PLÁN</div><div class="ps-val" id="pPlan">0</div></div><div class="stat-box"><div class="ps-lbl">REAL</div><div class="ps-val" id="pReal">0</div></div><div class="stat-box"><div class="ps-lbl">ROZDIEL</div><div class="ps-diff d-zero" id="pDiff">0</div></div></div><div class="note-wrapper"><div class="note-lbl">📝 Poznámka:</div><div class="note-input-row"><textarea id="pNoteInput" placeholder="Napíšte poznámku..."></textarea><button class="icon-btn n-save disabled" id="btnSaveNote" disabled onclick="reqSaveNote()">💾</button></div></div><div id="lastAction" class="hidden">--</div></div><div id="msgCard" class="hidden app-card"></div></div>
+        <div class="footer-wrapper"><div class="app-card footer-card"><div id="qtyControls" class="qty-row disabled-ctrl"><button class="q-act btn-p" onclick="act(1)">+</button><input type="number" id="mq" value="1" placeholder="1" min="1" max="999" onkeydown="return event.keyCode !== 69 && event.keyCode !== 189 && event.keyCode !== 109"><button class="q-act btn-m" onclick="act(-1)">-</button></div><div class="tool-row"><button class="t-btn t-gray" onclick="openStats()">📊 ŠTAT</button><button class="t-btn t-orange" onclick="openMissing()">📦 ZOZNAM</button><button class="t-btn t-purple" onclick="openLog()">📜 LOG</button><button class="t-btn t-blue" onclick="refresh(true)">🔄</button><button class="t-btn t-dark" style="flex:0 0 40px;" onclick="openLocalSettings()">⚙️</button></div><div class="settings-row"><select id="userSelect" class="custom-select hidden"></select><select id="sheetSelect" class="custom-select hidden"></select><button class="lb-back" onclick="resetToSetup()">👤 MENU / ZMENA SKLADU</button></div></div></div>
+    </div>
+    
+    <!-- WE INCLUDE JS FILE HERE -->
+    <?!= include('Scripts'); ?>
+  </body>
+</html>

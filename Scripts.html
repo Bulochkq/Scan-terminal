@@ -1,0 +1,734 @@
+<script>
+      // VERZIA FRONTENDU: 2.78 (UNIVERSAL FIXED)
+      window.onerror = function(msg, url, line) { showMsg("CRITICAL ERROR", msg + "\nLine: " + line, "error"); return false; };
+      var zoomSeconds = 1.0; var zoomEnabled = true;
+      function getZoomMs() { return zoomSeconds * 1000; }
+      var localDB = []; var currentItem = null; var currentSheetId = ""; var currentSheetName = ""; var currentUser = "";
+      var sessionId = "S_" + Math.random().toString(36).substr(2, 9);
+      var isProcessing = false; var audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+      var heartbeatInterval = null; var lastHeartbeatTime = 0; var isRequestPending = false; var isImporting = false; 
+      var pendingDelta = 0; var batchTimer = null; var html5QrCode = null; var isFlashOn = false; var conflictMissingCount = 0; 
+      var deployUrl = ""; var pendingWrites = {}; var lastUserActionTime = 0; var globalHistory = []; var lastLogItem = null; 
+      var currentActionType = "manual"; var batchStartValue = null; var isBatching = false; var lastActionDir = 0; 
+      var batchTimestamp = ""; var selectedMissingItem = null; var initTimeout = null; var adminSessionPin = null; var busyTimeout = null; var currentDataVersion = "0";
+      var flashTimeout = null;
+      var currentBackups = []; 
+
+      // UNIVERSAL LIST STATE
+      var listState = {
+          mode: 'user', // 'user', 'admin', 'backup'
+          filter: { all: true, miss: false, extra: false, done: false, note: false },
+          sort: 'miss_prio',
+          search: '',
+          selectedPlu: null
+      };
+
+      function getLoaderHtml(text) { var txt = text ? text : "Načítavam..."; return '<div class="spinner-container"><div class="custom-loader"></div><div class="spinner-text">'+txt+'</div></div>'; }
+      function getBrandBadge(brandName) { if (!brandName) return ""; var text = brandName; if(text.length > 25) text = text.substring(0, 25) + "..."; return '<span class="brand-list-badge">'+text+'</span>'; }
+      function unlockAudio(){if(audioCtx.state==='suspended')audioCtx.resume();}
+      document.addEventListener('touchstart', unlockAudio); document.addEventListener('click', unlockAudio);
+      function playTone(f,t,d){if(audioCtx.state==='suspended')audioCtx.resume(); var o=audioCtx.createOscillator(),g=audioCtx.createGain();o.type=t;o.frequency.value=f;o.connect(g);g.connect(audioCtx.destination);o.start();g.gain.exponentialRampToValueAtTime(0.00001,audioCtx.currentTime+d);o.stop(audioCtx.currentTime+d);}
+      function sndOk(){playTone(1200,'sine',0.08);}
+      function sndDone(){playTone(523,'sine',0.1); setTimeout(function(){playTone(784,'sine',0.2);},150);}
+      function sndOver(){playTone(150,'sawtooth',0.3);}
+      function sndErr(){playTone(100,'square',0.15);}
+
+      // --- CUSTOM SELECT LOGIC ---
+      function renderCustomSelects() {
+          $('.custom-select:not(#camSelect)').each(function() {
+              var $this = $(this);
+              var numberOfOptions = $this.children('option').length;
+              var isHidden = $this.hasClass('hidden');
+              
+              if ($this.parent().hasClass('custom-select-wrapper')) {
+                  var $wrapper = $this.parent();
+                  var $trigger = $wrapper.find('.custom-select-trigger');
+                  var $options = $wrapper.find('.custom-options');
+                  
+                  if (isHidden) $wrapper.addClass('hidden'); else $wrapper.removeClass('hidden');
+
+                  var selectedText = $this.find('option:selected').text();
+                  if (!selectedText && numberOfOptions > 0) selectedText = $this.find('option').first().text();
+                  $trigger.html(selectedText + '<span class="custom-arrow">▼</span>');
+                  
+                  if ($this.prop('disabled')) $trigger.addClass('disabled');
+                  else $trigger.removeClass('disabled');
+                  
+                  $options.empty();
+                  $this.children('option').each(function() {
+                      var $opt = $(this);
+                      if ($opt.prop('disabled') && $opt.val() === "") return;
+                      var isSelected = $opt.is(':selected') ? 'selected' : '';
+                      $options.append('<div class="custom-option ' + isSelected + '" data-value="' + $opt.val() + '">' + $opt.text() + '</div>');
+                  });
+              } else {
+                  $this.wrap('<div class="custom-select-wrapper ' + (isHidden ? 'hidden' : '') + '"></div>');
+                  $this.after('<div class="custom-select-trigger"></div><div class="custom-options"></div>');
+                  var $wrapper = $this.parent();
+                  var $trigger = $wrapper.find('.custom-select-trigger');
+                  var $options = $wrapper.find('.custom-options');
+                  
+                  var selectedText = $this.find('option:selected').text();
+                  if (!selectedText && numberOfOptions > 0) selectedText = $this.find('option').first().text();
+                  $trigger.html(selectedText + '<span class="custom-arrow">▼</span>');
+                  
+                   if ($this.prop('disabled')) $trigger.addClass('disabled');
+
+                  $this.children('option').each(function() {
+                      var $opt = $(this);
+                      if ($opt.prop('disabled') && $opt.val() === "") return; 
+                      var isSelected = $opt.is(':selected') ? 'selected' : '';
+                      $options.append('<div class="custom-option ' + isSelected + '" data-value="' + $opt.val() + '">' + $opt.text() + '</div>');
+                  });
+
+                  $trigger.on('click', function(e) {
+                      if ($this.prop('disabled')) return;
+                      $('.custom-select-wrapper').not($wrapper).removeClass('open');
+                      $wrapper.toggleClass('open');
+                      e.stopPropagation();
+                  });
+
+                  $wrapper.on('click', '.custom-option', function(e) {
+                      var val = $(this).data('value');
+                      var text = $(this).text();
+                      $wrapper.removeClass('open');
+                      $trigger.html(text + '<span class="custom-arrow">▼</span>');
+                      $this.val(val).trigger('change');
+                      $options.find('.custom-option').removeClass('selected');
+                      $(this).addClass('selected');
+                      e.stopPropagation();
+                  });
+              }
+          });
+      }
+
+      $(document).on('click', function(e) {
+          if (!$(e.target).closest('.custom-select-wrapper').length) {
+              $('.custom-select-wrapper').removeClass('open');
+          }
+          if (!$(e.target).closest('.uni-filter-wrapper').length) {
+              $('.uni-filter-popover').removeClass('active');
+          }
+      });
+      $(window).resize(function() { $('.custom-select-wrapper').removeClass('open'); });
+
+      // --- CUSTOM MODAL SYSTEM ---
+      var promptResolver = null; var confirmResolver = null;
+
+      function showMsg(title, text, type) {
+          $('#msgTitle').text(title);
+          $('#msgText').html(text.replace(/\n/g, '<br>'));
+          $('#msgModal').removeClass('hidden');
+      }
+
+      function showPrompt(title, placeholder, defaultValue, isPassword) {
+          return new Promise(function(resolve) {
+              promptResolver = resolve;
+              $('#promptTitle').text(title);
+              $('#promptInput').val(defaultValue || '').attr('placeholder', placeholder || '').attr('type', isPassword ? 'password' : 'text');
+              if (isPassword) { $('#promptEye').removeClass('hidden'); } else { $('#promptEye').addClass('hidden'); }
+              $('#promptModal').removeClass('hidden');
+              $('#promptInput').focus();
+          });
+      }
+      function togglePromptPass() {
+          var inp = $('#promptInput');
+          if (inp.attr('type') === 'password') { inp.attr('type', 'text'); $('#promptEye').css('color', '#374151'); } 
+          else { inp.attr('type', 'password'); $('#promptEye').css('color', '#9ca3af'); }
+      }
+      function submitPrompt() { var val = $('#promptInput').val(); $('#promptModal').addClass('hidden'); if(promptResolver) promptResolver(val); promptResolver=null; }
+      function cancelPrompt() { $('#promptModal').addClass('hidden'); if(promptResolver) promptResolver(null); promptResolver=null; }
+
+      function showConfirm(title, text, isDestructive) {
+          return new Promise(function(resolve) {
+              confirmResolver = resolve;
+              $('#confirmTitle').text(title);
+              $('#confirmText').html(text.replace(/\n/g, '<br>'));
+              var btn = $('#confirmYesBtn');
+              btn.removeClass('lb-go lb-del').addClass(isDestructive ? 'lb-del' : 'lb-go');
+              $('#confirmModal').removeClass('hidden');
+          });
+      }
+      function answerConfirm(res) { $('#confirmModal').addClass('hidden'); if(confirmResolver) confirmResolver(res); confirmResolver=null; }
+
+      // --- INIT & SETUP ---
+      function init(){ 
+          if(typeof jQuery == 'undefined') { showMsg("CRITICAL ERROR", "jQuery not loaded.", "error"); return; } 
+          if(/Mobi|Android/i.test(navigator.userAgent)) { $('#manualToggleBtn, #cameraBtn').show(); } else { $('#manualToggleBtn, #cameraBtn').hide(); $('#codeInput').attr('inputmode', 'text').focus(); } 
+          $('.q-act').addClass('btn-disabled'); 
+          try { var savedUser = localStorage.getItem('termUser'); } catch(e) {} 
+          try { var z = localStorage.getItem('localZoomSeconds'); if(z) zoomSeconds = parseFloat(z); var ze = localStorage.getItem('localZoomEnabled'); if(ze !== null) zoomEnabled = (ze === 'true'); } catch(e) {} 
+          loadInitData(); 
+          window.addEventListener("beforeunload", function() { if(currentSheetId && currentUser) google.script.run.releaseSheetLock(currentSheetId, currentUser, sessionId); }); 
+          window.addEventListener('offline', function() { updateSyncUI('offline'); }); 
+          window.addEventListener('online', function() { updateSyncUI('online'); }); 
+          $('#pNoteInput').on('input', function(){ var val = $(this).val(); var orig = (currentItem ? currentItem.note : "") || ""; if(val !== orig) { $('#btnSaveNote').addClass('active-state').removeClass('disabled').prop('disabled', false); } else { $('#btnSaveNote').removeClass('active-state').addClass('disabled').prop('disabled', true); } }); 
+          $('#promptInput').on('keyup',function(e){if(e.key==='Enter')submitPrompt();}); 
+          
+          $('#mq').on('input', function() {
+              var val = $(this).val();
+              if(val !== '') {
+                  val = val.replace(/[^0-9]/g, '');
+                  var n = parseInt(val);
+                  if(n > 999) n = 999;
+                  $(this).val(n);
+              }
+          });
+          $('#mq').on('blur', function() {
+              var val = parseInt($(this).val());
+              if(isNaN(val) || val < 1) $(this).val(1);
+          });
+
+          renderCustomSelects(); 
+      }
+      function updateSyncUI(status) { var pill = $('#syncStatus'); if(pill.length === 0) return; pill.removeClass('s-ok s-save s-err'); $('.footer-wrapper, .input-group').removeClass('offline-disabled'); if(status === 'online') { pill.text('🟢 ONLINE').addClass('s-ok'); } else if(status === 'saving') { pill.text('💾 UKLADÁM').addClass('s-save'); } else if(status === 'offline') { pill.text('🔴 OFFLINE / ČAKÁM').addClass('s-err'); $('.footer-wrapper, .input-group').addClass('offline-disabled'); } }
+      function loadInitData(){ $('#setupUserSelect, #setupSheetSelect').prop('disabled', true); initTimeout = setTimeout(function(){ $('#setupUserSelect, #setupSheetSelect').html('<option>⚠️ Chyba pripojenia</option>'); showMsg("Chyba", "Server neodpovedá.", "error"); renderCustomSelects(); }, 15000); google.script.run.withSuccessHandler(function(data){ clearTimeout(initTimeout); try { updateUserSelect(data.users); updateSheetSelects(data.sheets); deployUrl = data.deployUrl; $('#setupUserSelect, #setupSheetSelect').prop('disabled', false); renderCustomSelects(); } catch(e) { showMsg("Chyba", "Chyba spracovania dát: " + e, "error"); } }).withFailureHandler(function(e){ clearTimeout(initTimeout); showMsg("Kritická chyba", "Chyba servera: " + e, "error"); }).getInitData(); renderCustomSelects(); }
+      function updateSheetSelects(sheets) { 
+          var sSel = $('#setupSheetSelect'); var iSel = $('#importSheetSelect'); sSel.empty(); iSel.empty(); 
+          sSel.append('<option value="" selected disabled>-- Vyberte --</option>'); iSel.append('<option value="" selected disabled>-- Vyberte --</option>'); 
+          if(!sheets || sheets.length===0) { sSel.append('<option value="">(Žiadne sklady)</option>'); } 
+          else { 
+              sheets.forEach(function(s){ 
+                  if(!s.isBackup) {
+                      var opt = '<option value="'+s.id+'">'+s.name+'</option>'; sSel.append(opt); iSel.append(opt); 
+                  }
+              }); 
+          } 
+          iSel.prop('disabled', false);
+          renderCustomSelects();
+      }
+      function refreshSheetList() { $('.ref-btn').addClass('busy'); $('#setupSheetSelect, #importSheetSelect').empty().append('<option>⏳ Načítavam...</option>').prop('disabled', true); renderCustomSelects(); loadInitData(); setTimeout(function(){$('.ref-btn').removeClass('busy');}, 1000); }
+      function updateUserSelect(users) { var uSel = $('#setupUserSelect'); uSel.empty(); uSel.append('<option value="" selected disabled>-- Vyberte --</option>'); if(users && users.length > 0) { users.forEach(function(u){uSel.append('<option>'+u+'</option>');}); } else { uSel.append('<option disabled>(Zoznam prázdny)</option>'); } renderCustomSelects(); }
+      
+      // --- BACKUP MANAGER ---
+      async function openBackups() { 
+          if(!adminSessionPin) {
+              var p = await showPrompt("Zadajte Admin PIN:", "", "", true);
+              if(p !== "85592") return;
+              adminSessionPin = "85592";
+          }
+          $('#backupModal').removeClass('hidden'); $('#backupList').html(getLoaderHtml('Hľadám zálohy...')); 
+          $('#backupSearchInput').val(''); $('#backupSortSelect').val('date_desc');
+          renderCustomSelects();
+          google.script.run.withSuccessHandler(function(res){ 
+              if(res.success) { 
+                  currentBackups = res.list; 
+                  filterBackups(); // Initial render
+              } else { $('#backupList').html('<div style="padding:20px;text-align:center;">Chyba: '+res.msg+'</div>'); } 
+          }).getBackupsList(adminSessionPin); 
+      }
+      
+      function filterBackups() {
+          var term = $('#backupSearchInput').val().toLowerCase().trim();
+          var sortMode = $('#backupSortSelect').val();
+          
+          var filtered = currentBackups.filter(function(b){
+              return b.name.toLowerCase().includes(term);
+          });
+          
+          filtered.sort(function(a, b) {
+              if (sortMode === 'name_asc') return a.name.localeCompare(b.name);
+              var tA = extractDateFromName(a.name);
+              var tB = extractDateFromName(b.name);
+              if (sortMode === 'date_asc') return tA.localeCompare(tB);
+              if (sortMode === 'date_desc') return tB.localeCompare(tA);
+              return 0;
+          });
+          
+          renderBackupsList(filtered);
+      }
+      
+      function extractDateFromName(name) {
+          var m = name.match(/_(\d{8}_\d{6})/);
+          return m ? m[1] : "00000000_000000";
+      }
+
+      function renderBackupsList(list) { 
+          var c = $('#backupList'); c.empty(); 
+          if(!list || list.length === 0) { c.html('<div style="padding:40px; text-align:center; color:#9ca3af; font-weight:bold;">Žiadne zálohy.</div>'); return; } 
+          list.forEach(function(b){ 
+              var html = '<div class="backup-list-item"><div class="bu-name">'+b.name+'</div><div class="bu-actions"><button class="bu-btn bu-open" onclick="openEditorForBackup('+b.id+', \''+b.name+'\')">✏️ OTVORIŤ</button><button class="bu-btn bu-del" onclick="reqDeleteBackup('+b.id+')">🗑 ZMAZAŤ</button></div></div>'; 
+              c.append(html); 
+          }); 
+      }
+      function closeBackups() { $('#backupModal').addClass('hidden'); }
+      async function reqDeleteBackup(id) { 
+          var ok = await showConfirm("Vymazať zálohu?", "Táto akcia je nevratná.", true);
+          if(!ok) return; 
+          $('#backupList').html(getLoaderHtml('Mažem...')); 
+          google.script.run.withSuccessHandler(function(res){ 
+              if(res.success) openBackups(); else showMsg("Chyba", res.msg, "error"); 
+          }).deleteBackupSheet(id, adminSessionPin); 
+      }
+      function openEditorForBackup(id, name) {
+          closeBackups();
+          openUniversalList('backup', id, name);
+      }
+      
+      // ADMIN PANEL LOGIC
+      function updateAdminState() {
+          var val = $('#importSheetSelect').val();
+          if (!val || val === "" || val.includes("Načítavam")) { $('#adminDependent').addClass('ag-disabled'); } 
+          else { $('#adminDependent').removeClass('ag-disabled'); }
+      }
+
+      async function showAdminPanel() { 
+          if(adminSessionPin === "85592") { 
+              $('#adminCard').removeClass('hidden'); $('#setupGrid').removeClass('single-mode'); 
+              updateAdminState();
+          } else { 
+              var p = await showPrompt("🔑 PIN:", "", "", true); 
+              if(p === "85592") { adminSessionPin = p; $('#adminCard').removeClass('hidden'); $('#setupGrid').removeClass('single-mode'); updateAdminState(); } 
+              else if (p !== null) { showMsg("Error", "⛔ Nesprávny PIN", "error"); } 
+          } 
+      }
+      function closeAdminPanel() { $('#adminCard').addClass('hidden'); $('#setupGrid').addClass('single-mode'); }
+
+      // --- UNIVERSAL LIST / EDITOR FUNCTIONS ---
+      
+      function openUniversalList(mode, overrideId, overrideName) {
+          var sheetId = overrideId || (mode === 'admin' ? $('#importSheetSelect').val() : currentSheetId);
+          if(!sheetId || (typeof sheetId === 'string' && sheetId.includes("Načítavam"))) { showMsg("Info", "Najprv vyberte sklad!", "info"); return; }
+          
+          listState.mode = mode;
+          listState.selectedPlu = null;
+          listState.search = '';
+          // Reset filters when opening fresh
+          listState.filter = { all: true, miss: false, extra: false, done: false, note: false };
+          updateUniFilterUI();
+          
+          $('#uniSearchInput').val('');
+          $('#uniSortSelect').val('miss_prio');
+          $('#universalListModal').removeClass('hidden');
+          $('#uniListContainer').html(getLoaderHtml('Načítavam...'));
+          
+          var title = (mode === 'user') ? "📦 ZOZNAM" : (mode === 'admin' ? "✏️ EDITOR (Admin)" : "⌚ ZÁLOHA");
+          $('#uniModalTitle').text(title);
+          
+          // Disable actions initially
+          updateUniActions();
+
+          if (mode === 'user' && localDB.length > 0) {
+              $('#uniSheetName').text("Sklad: " + currentSheetName);
+              renderUniversalList();
+          } else {
+              setAdminBusy(true, "NAČÍTAVAM DÁTA...");
+              google.script.run.withSuccessHandler(function(res){ 
+                  setAdminBusy(false); 
+                  if(res.status === 'success') { 
+                      localDB = res.data; 
+                      if (mode !== 'user') currentSheetId = sheetId; 
+                      $('#uniSheetName').text(overrideName || res.sheetName); 
+                      renderUniversalList(); 
+                  } else { showMsg("Chyba", res.msg, "error"); $('#universalListModal').addClass('hidden'); } 
+              }).getSheetData(sheetId, "ListViewer", sessionId); 
+          }
+      }
+
+      function closeUniversalList() { $('#universalListModal').addClass('hidden'); $('.uni-filter-popover').removeClass('active'); }
+
+      function toggleUniFilter(type) {
+          if (type === 'all') {
+              var newVal = $('#chkUniAll').is(':checked');
+              listState.filter.all = newVal;
+              if (newVal) {
+                  listState.filter.miss = true; 
+                  listState.filter.extra = true; 
+                  listState.filter.done = true; 
+                  listState.filter.note = true;
+              } else {
+                  listState.filter.miss = false; 
+                  listState.filter.extra = false; 
+                  listState.filter.done = false; 
+                  listState.filter.note = false;
+              }
+          } else {
+              listState.filter[type] = $('#chkUni'+capitalize(type)).is(':checked');
+              var allStatus = listState.filter.miss && listState.filter.extra && listState.filter.done && listState.filter.note;
+              listState.filter.all = allStatus;
+          }
+          updateUniFilterUI();
+          renderUniversalList();
+      }
+      
+      function capitalize(s) { return s.charAt(0).toUpperCase() + s.slice(1); }
+
+      function updateUniFilterUI() {
+          $('#chkUniAll').prop('checked', listState.filter.all);
+          $('#chkUniMiss').prop('checked', listState.filter.miss);
+          $('#chkUniExtra').prop('checked', listState.filter.extra);
+          $('#chkUniDone').prop('checked', listState.filter.done);
+          $('#chkUniNote').prop('checked', listState.filter.note);
+          
+          var label = listState.filter.all ? "Všetko" : "Filtrované";
+          $('#uniFilterLabel').text(label);
+      }
+
+      function renderUniversalList() {
+          var container = $('#uniListContainer');
+          container.empty();
+          
+          var term = $('#uniSearchInput').val().toLowerCase().trim();
+          var sortMode = $('#uniSortSelect').val();
+          var f = listState.filter;
+          
+          var filtered = localDB.filter(function(item){
+              // 1. Search
+              var matchesTerm = true;
+              if (term !== "") {
+                  matchesTerm = (item.name.toLowerCase().includes(term) || item.plu.toLowerCase().includes(term) || item.ean.toLowerCase().includes(term));
+              }
+              if (!matchesTerm) return false;
+
+              // 2. Filter (OR Logic)
+              if (f.all) return true;
+              
+              var show = false;
+              if (f.miss && item.real < item.plan) show = true;
+              if (f.extra && item.real > item.plan) show = true;
+              if (f.done && item.real === item.plan) show = true;
+              
+              // Note is treated as a separate OR condition. 
+              // If Note is UNCHECKED, we do NOT show item *just because* it has a note.
+              // It must match status (Miss/Extra/Done) if Note is unchecked.
+              if (f.note && item.note && item.note.trim() !== "") show = true;
+              
+              return show;
+          });
+
+          // Sorting
+          filtered.sort(function(a,b){
+              if(sortMode === 'name_asc') return a.name.localeCompare(b.name);
+              if(sortMode === 'name_desc') return b.name.localeCompare(a.name);
+              if(sortMode === 'miss_prio') return (b.plan - b.real) - (a.plan - a.real); 
+              if(sortMode === 'qty_desc') return b.real - a.real;
+              if(sortMode === 'qty_asc') return a.real - b.real;
+              if(sortMode === 'plan_desc') return b.plan - a.plan;
+              if(sortMode === 'plan_asc') return a.plan - b.plan;
+              return 0;
+          });
+
+          if(filtered.length === 0) { container.append('<div style="padding:40px; text-align:center; color:#9ca3af;">Nič sa nenašlo.</div>'); return; }
+
+          var limit = (term === "") ? 100 : filtered.length; 
+          
+          for(var i=0; i<Math.min(filtered.length, limit); i++) {
+              var item = filtered[i]; 
+              var diff = item.real - item.plan; 
+              var rowClass = "uni-row";
+              if(diff < 0) rowClass += " ac-miss"; else if(diff > 0) rowClass += " ac-extra"; else rowClass += " ac-ok";
+              if(listState.selectedPlu === item.plu) rowClass += " selected-row";
+
+              var diffSign = (diff > 0) ? "+" : ""; 
+              var diffColor = (diff < 0) ? "#dc2626" : (diff > 0 ? "#d97706" : "#059669");
+              var brandHtml = item.brand ? '<span class="ac-brand">'+item.brand+'</span>' : "";
+              var noteIndicator = (item.note && item.note.trim() !== "") ? '<span style="font-size:10px;">📝</span>' : '';
+              var noteDisplayHtml = ""; if(item.note && item.note.trim() !== "") { noteDisplayHtml = '<div class="item-note-display">' + item.note + '</div>'; }
+              
+              var html = '<div class="'+rowClass+'" onclick="selectUniRow(\''+item.plu+'\')"><div class="ac-info"><div class="ac-name">'+item.name+' '+noteIndicator+'</div>'+brandHtml+' '+noteDisplayHtml+'<div class="ac-meta"><span class="ac-pill">PLU: '+item.plu+'</span><span class="ac-pill">EAN: '+item.ean+'</span></div></div><div class="ac-stats"><div class="ac-diff" style="color:'+diffColor+'">'+diffSign+diff+'</div><div class="ac-nums">'+item.real+' / '+item.plan+'</div></div></div>';
+              container.append(html);
+          }
+          if(filtered.length > limit) container.append('<div style="padding:15px; text-align:center; color:#9ca3af; font-size:11px;">... ďalších položiek skrytých (použite hľadanie) ...</div>');
+      }
+
+      function selectUniRow(plu) {
+          if (listState.selectedPlu === plu) {
+              listState.selectedPlu = null; // Deselect
+          } else {
+              listState.selectedPlu = plu;
+          }
+          updateUniActions();
+          renderUniversalList(); // Re-render to update highlights
+      }
+
+      function updateUniActions() {
+          var hasSel = (listState.selectedPlu !== null);
+          $('#ubScan, #ubEdit, #ubNote, #ubImg').prop('disabled', !hasSel);
+      }
+
+      function uniAction(type, e) {
+          // Prevent event bubbling if triggered from a specific element
+          if(e) e.stopPropagation(); 
+
+          if (type === 'add') {
+              openEditItemModal('new');
+              return;
+          }
+          
+          if (!listState.selectedPlu) return;
+          var item = localDB.find(function(i){ return i.plu === listState.selectedPlu; });
+          if (!item) return;
+
+          if (type === 'scan') {
+              // If Admin, switch context to Terminal
+              if (listState.mode === 'admin') {
+                  closeUniversalList();
+                  closeAdminPanel();
+                  $('#setupOverlay').addClass('hidden'); // Ensure setup is hidden
+                  currentSheetName = $('#uniSheetName').text(); 
+                  currentUser = "Admin"; // FORCE USER CONTEXT FOR LOGGING
+                  updateSyncUI('online');
+                  doScan(item.plu); 
+              } else {
+                  closeUniversalList();
+                  doScan(item.plu);
+              }
+          } 
+          else if (type === 'edit') {
+              openEditItemModal(item.row);
+          }
+          else if (type === 'note') {
+              editMissingNote(item.plu); // Reuse existing note logic
+          }
+          else if (type === 'img') {
+              var searchStr = (item.name || "") + " " + (item.code || ""); 
+              window.open("https://www.google.com/search?tbm=isch&q=" + encodeURIComponent(searchStr), '_blank');
+          }
+      }
+
+      // ... Rest of functions (openEditItemModal, saveEditItem etc.) are same as before ...
+      function openEditItemModal(mode) {
+          if(mode === 'new') {
+              $('#editRowId').val('new'); $('#editName').val(''); $('#editPlu').val(''); $('#editCode').val(''); $('#editEan').val(''); $('#editPlan').val('0'); $('#editReal').val('0'); $('#eimTitle').text("NOVÝ TOVAR"); $('#btnDelItem').addClass('hidden');
+          } else {
+              var item = localDB.find(function(i){ return i.row === mode; }); if(!item) return;
+              $('#editRowId').val(mode); $('#editName').val(item.name); $('#editPlu').val(item.plu); $('#editCode').val(item.code); $('#editEan').val(item.ean); $('#editPlan').val(item.plan); $('#editReal').val(item.real); $('#eimTitle').text("UPRAVIŤ TOVAR"); $('#btnDelItem').removeClass('hidden');
+          }
+          $('#editorEditModal').removeClass('hidden');
+      }
+      function closeEditItemModal() { $('#editorEditModal').addClass('hidden'); }
+      function saveEditItem() {
+          var rowIdVal = $('#editRowId').val(); var isNew = (rowIdVal === 'new');
+          var data = { name: $('#editName').val(), plu: $('#editPlu').val(), code: $('#editCode').val(), ean: $('#editEan').val(), plan: $('#editPlan').val(), real: $('#editReal').val(), brand: "" };
+          var btn = $('#editorEditModal .l-btn'); btn.text('UKLADÁM...').css('opacity',0.5);
+          if (isNew) {
+              google.script.run.withSuccessHandler(function(res){
+                  btn.text('💾 ULOŽIŤ').css('opacity',1);
+                  if(res.success) { closeEditItemModal(); if(listState.mode === 'admin') openUniversalList('admin', currentSheetId); else renderUniversalList(); } else { showMsg("Chyba", res.msg, "error"); }
+              }).adminCreateItem(currentSheetId, data, "Admin", adminSessionPin);
+          } else {
+              var rowId = parseInt(rowIdVal); var orig = localDB.find(function(i){ return i.row === rowId; }); if(orig) data.brand = orig.brand;
+              google.script.run.withSuccessHandler(function(res){
+                  btn.text('💾 ULOŽIŤ').css('opacity',1);
+                  if(res.success) {
+                      if(orig) { orig.name = data.name; orig.plu = data.plu; orig.code = data.code; orig.ean = data.ean; orig.plan = parseInt(data.plan); orig.real = parseInt(data.real); }
+                      closeEditItemModal(); renderUniversalList(); 
+                  } else { showMsg("Chyba", res.msg, "error"); }
+              }).adminUpdateItem(currentSheetId, rowId, data, "Admin", adminSessionPin);
+          }
+      }
+      async function deleteEditItem() {
+          var rowIdVal = $('#editRowId').val(); if(rowIdVal === 'new') return;
+          var ok = await showConfirm("Vymazať tovar?", "Naozaj vymazať tento tovar?", true);
+          if(!ok) return;
+          var rowId = parseInt(rowIdVal);
+          google.script.run.withSuccessHandler(function(res){
+              if(res.success) { closeEditItemModal(); if(listState.mode==='admin') openUniversalList('admin', currentSheetId); else renderUniversalList(); } else { showMsg("Chyba", res.msg, "error"); }
+          }).adminDeleteItem(currentSheetId, rowId, "Admin", adminSessionPin);
+      }
+      
+      // Standard app functions
+      function startApp() { 
+          currentUser = $('#setupUserSelect').val(); currentSheetId = $('#setupSheetSelect').val(); 
+          if(!currentUser || !currentSheetId || currentSheetId.includes("Načítavam")) { showMsg("Info", "Vyberte užívateľa a sklad!", "info"); return; } 
+          currentSheetName = $('#setupSheetSelect option:selected').text(); 
+          $('#setupOverlay').addClass('hidden'); 
+          setUiLoading(true); 
+          $('#waitingMsg').removeClass('hidden'); 
+          updateSyncUI('online');
+          google.script.run.withSuccessHandler(function(res){
+              if(res.status === 'error') { 
+                  setUiLoading(false); $('#setupOverlay').removeClass('hidden'); showMsg("Chyba", res.msg, "error"); return; 
+              }
+              if(res.data.length === 0) {
+                  setUiLoading(false); $('#setupOverlay').removeClass('hidden'); showMsg("Prázdny sklad", "Tento sklad je prázdny!\nPrejdite do 'ADMIN ZÓNY' a pridajte tovar.", "warning"); return;
+              }
+              localDB = res.data; currentDataVersion = res.dataVersion; 
+              $('#infoUser').text(currentUser); $('#infoSheet').text(currentSheetName); 
+              calcStats(); setUiLoading(false); 
+              if(res.otherUser) { $('#conflictUser').text(res.otherUser); $('#conflictBanner').removeClass('hidden'); conflictMissingCount=0; } else { $('#conflictBanner').addClass('hidden'); } 
+              startHeartbeat(); 
+          }).getSheetData(currentSheetId, currentUser, sessionId);
+      }
+      // Missing logic function re-implementation for completeness
+      function editMissingNote(plu) {
+          var item = localDB.find(function(i){ return i.plu === plu; });
+          if(!item) return;
+          
+          showPrompt("Poznámka pre " + item.name + ":", "Text poznámky...", item.note || "").then(function(text){
+              if(text !== null && text !== item.note) {
+                  // Save note via server
+                  updateSyncUI('saving');
+                  google.script.run.withSuccessHandler(function(res){
+                      updateSyncUI('online');
+                      if(res.status === 'success') { 
+                          item.note = res.note; 
+                          renderUniversalList(); // Refresh list to show note icon
+                      } else { showMsg("Chyba", res.msg, "error"); }
+                  }).saveProductNote(currentSheetId, item.row, text, currentUser || "Admin", sessionId);
+              }
+          });
+      }
+
+      // Rest of standard functions...
+      function exportSheet() { var sheetId = $('#importSheetSelect').val(); if(!sheetId || sheetId.includes("Načítavam")) { showMsg("Info", "Najprv vyberte sklad!", "info"); return; } var sheetName = $('#importSheetSelect option:selected').text(); setAdminBusy(true, "GENERUJEM XLSX..."); if(localDB.length > 0 && currentSheetId === sheetId) { generateXlsx(localDB, sheetName); } else { google.script.run.withSuccessHandler(function(res){ if(res.status === 'success') { generateXlsx(res.data, sheetName); } else { setAdminBusy(false); showMsg("Chyba", res.msg, "error"); } }).getSheetData(sheetId, "Exporter", sessionId); } }
+      function generateXlsx(data, sheetName) { try { var ws_data = [["Značka", "PLU", "Názov karty", "SKU", "EAN", "Plán", "Realita", "Rozdiel", "Poznámka"]]; data.forEach(function(item){ ws_data.push([item.brand, item.plu, item.name, item.code, item.ean, item.plan, item.real, (item.real - item.plan), item.note]); }); var ws = XLSX.utils.aoa_to_sheet(ws_data); var wb = XLSX.utils.book_new(); XLSX.utils.book_append_sheet(wb, ws, "Sklad"); var d = new Date(); var dateStr = d.getDate()+"-"+(d.getMonth()+1)+"-"+d.getFullYear(); XLSX.writeFile(wb, sheetName + "_" + dateStr + ".xlsx"); setAdminBusy(false); } catch(e) { setAdminBusy(false); showMsg("Chyba", "Export chyba: " + e, "error"); } }
+      function monitorHeartbeat() { if(!currentSheetId || !$('#setupOverlay').hasClass('hidden') || isImporting) return; var now = Date.now(); if (isRequestPending && (now - lastHeartbeatTime > 12000)) { isRequestPending = false; updateSyncUI('offline'); } if (isRequestPending || pendingDelta !== 0 || isBatching) return; isRequestPending = true; lastHeartbeatTime = now; google.script.run.withSuccessHandler(function(res){ isRequestPending = false; updateSyncUI('online'); if (res.dataVersion && currentDataVersion !== "0" && res.dataVersion !== currentDataVersion) { console.log("Version mismatch! Reloading..."); currentDataVersion = res.dataVersion; refresh(true); return; } if (res.dataVersion) currentDataVersion = res.dataVersion; if(res.otherUser) { $('#conflictUser').text(res.otherUser); $('#conflictBanner').removeClass('hidden'); conflictMissingCount = 0; } else { conflictMissingCount++; if(conflictMissingCount > 3) $('#conflictBanner').addClass('hidden'); } if(res.allReals && res.allReals.length > 0) { if(res.allReals.length !== localDB.length) { refresh(false); return; } var activeRow = currentItem ? (currentItem.row - 2) : -1; var needUpdate = false; var userIsActive = (Date.now() - lastUserActionTime < 5000); res.allReals.forEach(function(val, i){ var serverVal = Number(val) || 0; if (i === activeRow && userIsActive) return; if (pendingWrites[i]) return; if(localDB[i].real !== serverVal) { localDB[i].real = serverVal; needUpdate = true; } }); if(needUpdate) { calcStats(); if(activeRow !== -1 && !userIsActive && !pendingWrites[activeRow]) { currentItem.real = localDB[activeRow].real; updateUI(); } } } }).withFailureHandler(function(e){ isRequestPending = false; updateSyncUI('offline'); }).acquireSheetLock(currentSheetId, currentUser, sessionId); }
+      async function reqCreateSheet() { var n = await showPrompt("Názov skladu:", "Napr. Sklad A", ""); if(!n) return; setAdminBusy(true, 'VYTVÁRAM SKLAD...'); google.script.run.withSuccessHandler(function(res){ setAdminBusy(false); showMsg("Info", res.msg, "info"); if(res.success) refreshSheetList(); }).withFailureHandler(function(e){ setAdminBusy(false); showMsg("Chyba", e, "error"); }).createNewSheet(n); }
+      
+      // NEW HELPERS FOR SETUP UI LOCKING
+      function setSetupBusy(isBusy) {
+          if (isBusy) {
+             $('#setupUserSelect').html('<option>⏳ Pracujem...</option>').prop('disabled', true);
+             $('#userCtrlRow button').prop('disabled', true).css('opacity', '0.5');
+          } else {
+             $('#userCtrlRow button').prop('disabled', false).css('opacity', '1');
+             $('#setupUserSelect').prop('disabled', false);
+          }
+          renderCustomSelects();
+      }
+
+      async function reqAddUser() { 
+          var name = await showPrompt("Meno pracovníka:", "Meno", ""); 
+          if(name) {
+              setSetupBusy(true); // Lock UI
+              google.script.run
+                  .withSuccessHandler(function(u){ updateUserSelect(u); setSetupBusy(false); })
+                  .withFailureHandler(function(e){ setSetupBusy(false); showMsg("Chyba", e, "error"); })
+                  .addUser(name);
+          }
+      }
+      
+      async function reqDelUser() { 
+          var name = $('#setupUserSelect').val(); 
+          if (!name) return;
+          var ok = await showConfirm("Vymazať užívateľa?", "Naozaj vymazať: " + name + "?", true); 
+          if(ok) {
+              setSetupBusy(true); // Lock UI
+              google.script.run
+                  .withSuccessHandler(function(u){ updateUserSelect(u); setSetupBusy(false); })
+                  .withFailureHandler(function(e){ setSetupBusy(false); showMsg("Chyba", e, "error"); })
+                  .removeUser(name);
+          }
+      }
+
+      function setAdminBusy(isBusy, busyText) { if (busyTimeout) clearTimeout(busyTimeout); if(isBusy) { $('#adminLoadingText').text(busyText); $('#adminProcessOverlay').removeClass('hidden'); busyTimeout = setTimeout(function() { $('#adminProcessOverlay').addClass('hidden'); isImporting = false; }, 60000); } else { $('#adminProcessOverlay').addClass('hidden'); } }
+      async function onXlsxSelected(input) { 
+          var file = input.files[0]; if(!file) return; 
+          if(!adminSessionPin) { var p = await showPrompt("Admin PIN:", "", "", true); if(p!=="85592") { input.value=''; return; } adminSessionPin="85592"; } 
+          var ok = await showConfirm("Nahradiť dáta?", "⚠️ Súbor nahradí VŠETKY dáta v sklade!", true); 
+          if(!ok) { input.value=''; return; } 
+          var tid = $('#importSheetSelect').val(); if(!tid || tid.includes("Načítavam")) { showMsg("Info", "Vyberte sklad!", "info"); input.value=''; return; } 
+          setAdminBusy(true, 'ČÍTAM...'); 
+          var r = new FileReader(); 
+          r.onload = function(e) { 
+              var d = new Uint8Array(e.target.result); 
+              try { 
+                  var wb = XLSX.read(d, {type:'array'}); 
+                  var js = XLSX.utils.sheet_to_json(wb.Sheets[wb.SheetNames[0]], {header:1}); 
+                  setAdminBusy(true, 'NAHRÁVAM...'); 
+                  google.script.run.withSuccessHandler(function(res){ setAdminBusy(false); input.value=''; showMsg("Info", res.msg, "info"); }).processXlsxUpload(js, tid, adminSessionPin); 
+              } catch(err) { setAdminBusy(false); showMsg("Chyba", "Chyba súboru", "error"); input.value=''; } 
+          }; 
+          r.readAsArrayBuffer(file); 
+      }
+      async function reqImport() { 
+          var tid = $('#importSheetSelect').val(); if(!tid || tid.includes("Načítavam")) { showMsg("Info", "Vyberte sklad!", "info"); return; } 
+          if(!adminSessionPin) { var p = await showPrompt("PIN:", "", "", true); if(p!=="85592") return; adminSessionPin="85592"; } 
+          var ok = await showConfirm("Importovať?", "⚠️ Dáta sa načítajú z hárku 'FLEX_IMPORT'. Pokračovať?", false); 
+          if(!ok) return; 
+          setAdminBusy(true, 'IMPORTUJEM...'); 
+          google.script.run.withSuccessHandler(function(res){ setAdminBusy(false); showMsg("Info", res.msg, "info"); }).runImportFromSidebar(tid, adminSessionPin); 
+      }
+      async function reqDeleteSheet() { 
+          var tid = $('#importSheetSelect').val(); if(!tid || tid.includes("Načítavam")) return; 
+          if(!adminSessionPin) { var p = await showPrompt("PIN:", "", "", true); if(p!=="85592") return; adminSessionPin="85592"; } 
+          var ok = await showConfirm("VYMAZAŤ SKLAD?", "⚠️ Naozaj vymazať celý sklad?", true); 
+          if(ok) { setAdminBusy(true, 'MAŽEM...'); google.script.run.withSuccessHandler(function(res){ setAdminBusy(false); showMsg("Info", res.msg, "info"); if(res.success) refreshSheetList(); }).deleteTargetSheet(tid, adminSessionPin); } 
+      }
+      async function reqClearLogs() { 
+          if(!adminSessionPin) { var p = await showPrompt("PIN:", "", "", true); if(p!=="85592") return; adminSessionPin="85592"; } 
+          var ok = await showConfirm("Vymazať logy?", "História bude archivovaná a vymazaná.", true); 
+          if(ok) { setAdminBusy(true, 'MAŽEM...'); google.script.run.withSuccessHandler(function(res){ setAdminBusy(false); showMsg("Info", res.msg, "info"); }).runClearLogsFromSidebar(adminSessionPin); } 
+      }
+      function openLocalSettings() { $('#localZoomRange').val(zoomSeconds); $('#zoomToggleCheck').prop('checked', zoomEnabled); updateRangeLabel(zoomSeconds); $('#localSettingsModal').removeClass('hidden'); }
+      function closeLocalSettings() { $('#localSettingsModal').addClass('hidden'); }
+      function updateRangeLabel(val) { $('#rangeVal').text(parseFloat(val).toFixed(1) + " s"); }
+      function saveLocalSettings() { var val = $('#localZoomRange').val(); zoomSeconds = parseFloat(val); zoomEnabled = $('#zoomToggleCheck').is(':checked'); try { localStorage.setItem('localZoomSeconds', zoomSeconds); localStorage.setItem('localZoomEnabled', zoomEnabled); } catch(e){} closeLocalSettings(); }
+      function resetToSetup() { if(currentSheetId && currentUser) google.script.run.releaseSheetLock(currentSheetId, currentUser, sessionId); stopHeartbeat(); refreshSheetList(); $('#setupOverlay').removeClass('hidden'); $('#productCard').addClass('hidden'); $('#waitingMsg').removeClass('hidden'); $('#qtyControls').addClass('disabled-ctrl'); $('.q-act').addClass('btn-disabled'); localDB=[]; currentSheetId=""; }
+      function setUiLoading(isLoading) { var els = $('.input-group, .tool-row, .qty-row'); if(isLoading) { els.addClass('ui-disabled'); $('#readyIndicator').html(getLoaderHtml("Sťahujem DB...")).addClass('busy'); } else { els.removeClass('ui-disabled'); $('#readyIndicator').text("PRIPRAVENÝ").removeClass('busy'); if(!currentItem) { $('#qtyControls').addClass('disabled-ctrl'); $('.q-act').addClass('btn-disabled'); } } }
+      function changeSheet(){ if(!currentSheetId) return; setUiLoading(true); google.script.run.withSuccessHandler(function(res){ if(res.status === 'error') { setUiLoading(false); showMsg("Chyba", res.msg, "error"); return; } localDB = res.data; currentDataVersion = res.dataVersion; if(res.sheetName) { currentSheetName = res.sheetName; $('#infoSheet').text(currentSheetName); } calcStats(); setUiLoading(false); $('#waitingMsg').removeClass('hidden'); updateSyncUI('online'); if(res.otherUser) { $('#conflictUser').text(res.otherUser); $('#conflictBanner').removeClass('hidden'); conflictMissingCount=0; } else { $('#conflictBanner').addClass('hidden'); } startHeartbeat(); }).getSheetData(currentSheetId, currentUser, sessionId); }
+      function startHeartbeat() { stopHeartbeat(); lastHeartbeatTime = Date.now(); isRequestPending = false; heartbeatInterval = setInterval(monitorHeartbeat, 3000); }
+      function stopHeartbeat() { if(heartbeatInterval) clearInterval(heartbeatInterval); }
+      function doScan(code){ 
+          if(localDB.length === 0) return; 
+          if(!code || code.trim() === "") return; 
+          if(isBatching) flushChanges(); 
+          currentItem = null; 
+          $('#productCard').addClass('hidden'); $('#errCard').addClass('hidden'); $('.q-act').addClass('btn-disabled'); 
+          code = String(code).trim(); 
+          var matches = localDB.filter(function(i){ return i.plu === code || i.ean === code || i.code === code; }); 
+          if(matches.length > 1) { sndErr(); void document.getElementById("errCard").offsetWidth; $('#errCard').removeClass('hidden').addClass('shake-anim').text("⚠️ DUPLIKÁT!"); var dummy = {plu: code, name: "Nájdených viac zhôd", code: "DUPLICATE", ean: "--"}; if(zoomEnabled) flash(dummy, "DUPLIKÁT!", "f-red"); $('#qtyControls').addClass('disabled-ctrl'); return; } 
+          var found = matches[0]; 
+          if(!found) { sndErr(); void document.getElementById("errCard").offsetWidth; $('#errCard').removeClass('hidden').addClass('shake-anim').text("Neznámy kód: " + code); if(zoomEnabled) flash({ plu: code, name: "Neznámy kód", code: "--", ean: "--" }, "CHYBA", "f-red"); return; } 
+          $('#qtyControls').removeClass('disabled-ctrl'); currentItem = found; currentActionType = "scan"; modifyItem(1); 
+      }
+      function act(dir){ if(!currentItem) return; var qty = parseInt($('#mq').val()) || 1; var change = dir * qty; if (currentItem.real + change < 0) { sndErr(); if(zoomEnabled) flash(currentItem, "NEMOŽNO ÍSŤ POD 0!", "f-red"); return; } if(isBatching && lastActionDir !== 0 && Math.sign(change) !== Math.sign(lastActionDir)) { flushChanges(); } lastActionDir = change; currentActionType = "manual"; modifyItem(change); $('#mq').val(1); if(/Mobi|Android/i.test(navigator.userAgent)) { $('#codeInput').attr('inputmode', 'none'); } if(document.activeElement) document.activeElement.blur(); $('#codeInput').focus(); }
+      function modifyItem(change) { lastUserActionTime = Date.now(); if (!isBatching) { isBatching = true; batchStartValue = currentItem.real; var now = new Date(); var d = String(now.getDate()).padStart(2, '0') + "." + String(now.getMonth()+1).padStart(2, '0') + "." + now.getFullYear(); var t = String(now.getHours()).padStart(2, '0') + ":" + String(now.getMinutes()).padStart(2, '0') + ":" + String(now.getSeconds()).padStart(2, '0'); batchTimestamp = d + " " + t; } currentItem.real += change; if(currentItem.real < 0) currentItem.real = 0; updateUI(); pendingDelta += change; pendingWrites[currentItem.row - 2] = true; if(batchTimer) clearTimeout(batchTimer); updateOptimisticLog(currentItem.name, currentItem.plu, batchStartValue, currentItem.real, currentActionType, currentItem.ean, batchTimestamp, currentItem.code); var color = 'f-blue'; if(currentItem.real === currentItem.plan) { color = 'f-green'; sndDone(); } else if(currentItem.real > currentItem.plan) { color = 'f-orange'; sndOver(); } else { sndOk(); } if(zoomEnabled) flash(currentItem, currentItem.name, color); batchTimer = setTimeout(flushChanges, 2000); }
+      function reqSaveNote() { if(!currentItem) return; var txt = $('#pNoteInput').val(); var btn = $('#btnSaveNote'); if(btn.prop('disabled')) return; btn.prop('disabled', true).text('⏳').removeClass('active-state'); updateSyncUI('saving'); google.script.run.withSuccessHandler(function(res){ updateSyncUI('online'); if(res.status === 'success') { currentItem.note = res.note; $('#pNoteInput').val(res.note); btn.prop('disabled', true).addClass('disabled').removeClass('active-state').text('💾'); } else { showMsg("Chyba", "Chyba uloženia: " + res.msg, "error"); btn.prop('disabled', false).addClass('active-state').removeClass('disabled').text('💾'); } }).withFailureHandler(function(e){ updateSyncUI('offline'); btn.prop('disabled', false).addClass('active-state').removeClass('disabled').text('💾'); showMsg("Chyba", "Server Error: " + e, "error"); }).saveProductNote(currentSheetId, currentItem.row, txt, currentUser, sessionId); }
+      function generateLogHtml(time, plu, name, ean, actLabel, badgeClass, oldVal, newVal, mpn) { if (actLabel === "IMPORT" || actLabel === "CLEAR" || actLabel === "ADMIN" || actLabel === "DELETE") { return '<div class="log-admin-row"><div style="font-size:10px; font-weight:bold; color:#6b7280; text-transform:uppercase;">'+time+'</div><div style="font-size:13px; font-weight:800; color:#1f2937;">'+name+'</div><div style="margin-top:4px;"><span class="act-badge '+badgeClass+'" style="font-size:10px;">'+actLabel+'</span></div></div>'; } var eanHtml = (ean && ean !== '--') ? '<span class="code-pill">EAN: '+ean+'</span>' : '<span class="code-pill no-ean">BEZ EAN</span>'; var pluHtml = '<span class="code-pill">PLU: '+plu+'</span>'; var mpnHtml = (mpn && mpn !== '--' && mpn !== '') ? '<span class="code-pill">SKU: '+mpn+'</span>' : ''; var foundItem = localDB.find(function(x){ return x.plu === plu; }); var brandHtml = foundItem ? getBrandBadge(foundItem.brand) : ""; var datePart = ""; var timePart = time; var parts = time.split(' '); if(parts.length >= 2) { datePart = parts[0]; timePart = parts[1]; } if (actLabel === "POZNÁMKA") { var oldValText = (oldVal && oldVal !== "") ? oldVal : "(prázdne)"; return '<div class="note-header"><div class="l-info"><span class="l-timestamp">'+datePart+' '+timePart+'</span><span class="l-name" title="'+name+'">'+name+'</span><div style="margin-bottom:4px;">'+brandHtml+'</div><div class="l-codes">'+pluHtml+' '+mpnHtml+' '+eanHtml+'</div></div><div class="l-act"><span class="act-badge '+badgeClass+'">'+actLabel+'</span></div></div><div class="note-body"><div class="note-old"><div class="note-val-label">BOLO:</div><div class="note-val-text" style="color:#6b7280;">'+oldValText+'</div></div><div class="note-arrow">▼</div><div class="note-new"><div class="note-val-label" style="color:#7c3aed;">JE:</div><div class="note-val-text" style="color:#111827;">'+newVal+'</div></div></div>'; } return '<div class="l-info"><span class="l-timestamp">'+datePart+' '+timePart+'</span><span class="l-name" title="'+name+'">'+name+'</span><div style="margin-bottom:4px;">'+brandHtml+'</div><div class="l-codes">'+pluHtml+' '+mpnHtml+' '+eanHtml+'</div></div><div class="l-act"><span class="act-badge '+badgeClass+'">'+actLabel+'</span><span class="val-change">'+oldVal+' <span class="la-arrow">➝</span> '+newVal+'</span></div>'; }
+      function generateCompactLogHtml(time, plu, name, ean, actLabel, badgeClass, oldVal, newVal, mpn) { var eanHtml = (ean && ean !== '--') ? '<span class="code-pill">EAN: '+ean+'</span>' : '<span class="code-pill no-ean">BEZ EAN</span>'; var pluHtml = '<span class="code-pill">PLU: '+plu+'</span>'; var mpnHtml = (mpn && mpn !== '--' && mpn !== '') ? '<span class="code-pill">SKU: '+mpn+'</span>' : ''; var foundItem = localDB.find(function(x){ return x.plu === plu; }); var brandHtml = foundItem ? getBrandBadge(foundItem.brand) : ""; var datePart = ""; var timePart = time; var parts = time.split(' '); if(parts.length >= 2) { datePart = parts[0]; timePart = parts[1]; } return '<div class="l-time-row"><span>'+datePart+' '+timePart+'</span></div><div class="l-main-row"><div class="l-info" style="width:100%;"><div class="l-name" title="'+name+'">'+name+'</div><div style="margin-top:2px;">'+brandHtml+'</div></div><div class="l-act-group"><div class="l-act"><span class="act-badge '+badgeClass+'">'+actLabel+'</span><span class="val-change">'+oldVal+' <span class="la-arrow">➝</span> '+newVal+'</span></div></div></div><div class="l-codes-row">'+pluHtml+' '+mpnHtml+' '+eanHtml+'</div>'; }
+      function updateOptimisticLog(name, plu, oldVal, newVal, type, ean, fullTime, mpn) { var list = $('#pcLogList'); list.find('.log-placeholder').remove(); var topItem = list.children().first(); var isSameBatch = topItem.hasClass('pending') && topItem.data('plu') == plu; var diff = newVal - oldVal; var badgeClass = diff >= 0 ? 'badge-green' : 'badge-red'; var label = (type === "scan") ? "SKEN" : "MANUÁL"; var htmlContent = generateCompactLogHtml(fullTime, plu, name, ean, label, badgeClass, oldVal, newVal, mpn); if (isSameBatch) { topItem.html(htmlContent); } else { var newItem = $('<div class="log-item new-item pending flash-anim" data-plu="'+plu+'">'+htmlContent+'</div>'); list.prepend(newItem); if(list.children().length > 20) list.children().last().remove(); } var displayFull = fullTime.split(' ')[1]; $('#lastAction').html(displayFull+' | ULOŽENÉ: '+oldVal+' ➝ '+newVal); var actionEl = $('#lastAction'); actionEl.removeClass('act-success act-danger hidden'); if(diff >= 0) actionEl.addClass('act-success'); else actionEl.addClass('act-danger'); }
+      function refresh(hard){ if(hard) { if(isBatching) flushChanges(); currentItem = null; $('#productCard').addClass('hidden'); $('#errCard').addClass('hidden'); $('#codeInput').val(''); $('#waitingMsg').removeClass('hidden'); $('#qtyControls').addClass('disabled-ctrl'); $('.q-act').addClass('btn-disabled'); $('#pcLogList').empty().append('<div class="log-placeholder">Čakám na akcie...</div>'); lastLogItem = null; } changeSheet(); }
+      function flushChanges() { if(!currentItem || pendingDelta === 0) return; var finalVal = currentItem.real; var startVal = batchStartValue; var typeToSend = currentActionType; var rowToSend = currentItem.row; var savedTimestamp = batchTimestamp; var displayTime = savedTimestamp.split(' ')[1]; $('#pcLogList').children().first().removeClass('pending').removeClass('new-item'); isBatching = false; pendingDelta = 0; batchStartValue = null; lastActionDir = 0; $('#lastAction').html(displayTime+' | ULOŽENÉ: '+startVal+' ➝ '+finalVal); updateSyncUI('saving'); google.script.run.withSuccessHandler(function(res){ updateSyncUI('online'); delete pendingWrites[rowToSend - 2]; if(res.status === 'error') { showMsg("Chyba", "⚠️ Chyba uloženia!", "error"); updateSyncUI('offline'); } }).withFailureHandler(function(e){ updateSyncUI('offline'); delete pendingWrites[rowToSend - 2]; showMsg("Chyba", "❌ CHYBA ULOŽENIA: " + currentItem.name, "error"); }).processQueueItem({ row: rowToSend, forceValue: finalVal, clientOldValue: startVal, type: typeToSend, timestamp: savedTimestamp }, currentSheetId, currentUser, sessionId); }
+      function updateUI(){ if(!currentItem) return; $('#waitingMsg, #errCard').addClass('hidden'); $('#productCard').removeClass('hidden'); $('#pName').text(currentItem.name); $('#pCode').text(currentItem.plu); if(currentItem.brand && currentItem.brand !== "") { var bText = currentItem.brand; if(bText.length > 25) bText = bText.substring(0, 25) + "..."; $('#pBrand').text(bText).removeClass('hidden'); } else { $('#pBrand').addClass('hidden'); } if (currentItem.code && currentItem.code !== '') { $('#pMpn').text(currentItem.code); } else { $('#pMpn').text('--'); } if (currentItem.ean && currentItem.ean !== '--') { $('#pEan').text(currentItem.ean).removeClass('no-ean'); } else { $('#pEan').text("BEZ EAN").addClass('no-ean'); } $('#pPlan').text(currentItem.plan); $('#pReal').text(currentItem.real); var diff = currentItem.real - currentItem.plan; var diffText = (diff>0?"+":"") + diff; var diffColor = diff===0 ? '#d97706' : (diff>0 ? '#059669' : '#dc2626'); $('#pDiff').text(diffText).css('color', diffColor); calcStats(); $('.q-act').removeClass('btn-disabled'); $('#pNoteInput').val(currentItem.note || ""); $('#btnSaveNote').removeClass('active-state').addClass('disabled').prop('disabled', true); }
+      function calcStats(){ 
+          var sPlan=0, sReal=0, sMiss=0, sExtra=0, cappedRealTotal=0; var finishedRows = 0; 
+          localDB.forEach(function(i){ 
+              sPlan+=i.plan; sReal+=i.real; cappedRealTotal += Math.min(i.real, i.plan); 
+              if(i.real < i.plan) sMiss += (i.plan - i.real); else sExtra += (i.real - i.plan); 
+              if(i.real >= i.plan) finishedRows++; 
+          }); 
+          $('#qPlan').text(sPlan); $('#qReal').text(sReal); $('#qMiss').text(sMiss); $('#qExtra').text(sExtra); 
+          $('#qFinished').text(finishedRows + " / " + localDB.length); 
+          var pct = sPlan>0 ? Math.round((cappedRealTotal/sPlan)*100) : (localDB.length>0 && sReal===0 ? 100 : 0); 
+          if(pct>100) pct=100; 
+          $('#progBar').css('width', pct+'%'); 
+          $('#statsSheetName').text("Sklad: " + currentSheetName); 
+      }
+      function openStats() { calcStats(); $('#statsModal').removeClass('hidden'); }
+      function closeStats() { $('#statsModal').addClass('hidden'); }
+      function openLog() { $('#logModal').removeClass('hidden'); $('#logSheetName').text("Sklad: " + currentSheetName); var container = $('#fullLogList'); container.html(getLoaderHtml("Načítavam históriu...")); google.script.run.withSuccessHandler(function(logs){ globalHistory = logs; container.empty(); if(logs.length === 0) { container.append('<div style="padding:20px; color:#9ca3af; font-size:12px;">Zatiaľ žiadne akcie...</div>'); } else { logs.forEach(function(item){ var actStr = String(item.action); var oldVal = item.oldVal; var newVal = item.newVal; var label = actStr; var badgeClass = "badge-green"; if (actStr === "POZNÁMKA") { badgeClass = "badge-purple"; } else if(parseInt(newVal) < parseInt(oldVal)) { badgeClass = "badge-red"; } var dateTime = String(item.time); var htmlContent = generateLogHtml(dateTime, item.plu, item.name, item.ean, label, badgeClass, oldVal, newVal, item.mpn); if(actStr === "IMPORT" || actStr === "CLEAR" || actStr === "ADMIN" || actStr === "DELETE") { container.append(htmlContent); } else { var rowClass = (actStr === "POZNÁMKA") ? "fl-row log-note-row" : "fl-row"; container.append('<div class="'+rowClass+'">'+htmlContent+'</div>'); } }); } }).getLogsForClient(currentSheetId); }
+      function closeLog() { $('#logModal').addClass('hidden'); }
+      function openMissing() { openUniversalList('user'); }
+      
+      // FIXED FLASH FUNCTION
+      function flash(item, name, cls){ 
+          if(flashTimeout) clearTimeout(flashTimeout);
+          $('#flashOverlay').removeClass().addClass(cls).removeClass('hidden'); 
+          var p = (item && item.plu) ? item.plu : "0000"; 
+          var n = (item && item.name) ? item.name : name; 
+          var s = (item && item.code) ? item.code : "--"; 
+          var e = (item && item.ean) ? item.ean : "--"; 
+          $('#flashCode').text(p); 
+          $('#flashName').text(n); 
+          $('#flashSku').text(s); 
+          $('#flashEan').text(e); 
+          flashTimeout = setTimeout(function(){$('#flashOverlay').addClass('hidden'); flashTimeout=null;}, getZoomMs()); 
+      }
+      function hideFlash() { 
+          if(flashTimeout) clearTimeout(flashTimeout);
+          $('#flashOverlay').addClass('hidden'); 
+      }
+      
+      function toggleKey(){ var i=$('#codeInput'); var btn = $('#manualToggleBtn'); var currentMode = i.attr('inputmode'); if(currentMode === 'none') { i.attr('inputmode', 'text').focus(); btn.addClass('active'); } else { i.attr('inputmode', 'none'); btn.removeClass('active'); } }
+      function closeUI() { if(isBatching) flushChanges(); $('#productCard').addClass('hidden'); $('#waitingMsg').removeClass('hidden'); $('#qtyControls').addClass('disabled-ctrl'); currentItem=null; $('.q-act').addClass('btn-disabled'); }
+      function startCam() { $('#camera-fullscreen').show(); var isIOS = /iPhone|iPad|iPod/i.test(navigator.userAgent); if (isIOS) { $('#camSelectWrapper').hide(); realStart(null); return; } Html5Qrcode.getCameras().then(function(devices){ var sel = $('#camSelect'); sel.empty(); var targetId = null; if (devices && devices.length) { var backCam = null; var nonFrontCam = null; devices.forEach(function(d){ sel.append('<option value="'+d.id+'">'+(d.label || 'Camera ' + d.id)+'</option>'); var label = (d.label || "").toLowerCase(); if (label.includes('back') || label.includes('rear') || label.includes('environment')) { backCam = d.id; } if (!label.includes('front') && !label.includes('selfie')) { nonFrontCam = d.id; } }); $('#camSelectWrapper').show(); var savedId = localStorage.getItem('preferredCam'); if (savedId && devices.find(function(d){ return d.id === savedId; })) { targetId = savedId; } else if (backCam) { targetId = backCam; } else if (nonFrontCam) { targetId = nonFrontCam; } else { targetId = devices[devices.length - 1].id; } sel.val(targetId); } realStart(targetId); }).catch(function(err){ realStart(null); }); }
+      function killStream() { try { var vid = document.querySelector("#reader video"); if (vid && vid.srcObject) { var tracks = vid.srcObject.getTracks(); if(tracks) tracks.forEach(function(track){ track.stop(); }); } } catch(e) {} }
+      function changeCamera() { var newId = $('#camSelect').val(); if(newId) { localStorage.setItem('preferredCam', newId); killStream(); if(html5QrCode) { html5QrCode.stop().then(function(){ html5QrCode.clear(); html5QrCode = null; setTimeout(function(){ realStart(newId); }, 300); }).catch(function(err){ html5QrCode = null; realStart(newId); }); } else { realStart(newId); } } }
+      function realStart(camId) { isFlashOn = false; updateFlashBtn(); if(html5QrCode) { try { html5QrCode.clear(); } catch(e){} } $('#reader').empty(); html5QrCode = new Html5Qrcode("reader"); var qrBoxSize = Math.min(window.innerWidth * 0.70, 250); var config = { fps: 10, qrbox: qrBoxSize }; var startConfig = camId ? { deviceId: { exact: camId } } : { facingMode: "environment" }; setTimeout(function() { html5QrCode.start( startConfig, config, function(decodedText){ stopCam(); doScan(decodedText); }, function(errorMessage){ } ).then(function(){ $('#camFlash').removeClass('hidden'); var vid = document.querySelector("#reader video"); if(vid) { vid.setAttribute("playsinline", "true"); } }).catch(function(err){ if(camId) { alert("Chyba kamery. Skúšam automatický režim..."); realStart(null); } else { alert("Kamera sa nedala spustiť: " + err); stopCam(); } }); }, 100); }
+      function stopCam(){ $('#camera-fullscreen').hide(); $('#camFlash').removeClass('active').addClass('hidden'); isFlashOn=false; killStream(); if(html5QrCode) { html5QrCode.stop().then(function(){ html5QrCode.clear(); html5QrCode = null; }).catch(function(e){ html5QrCode = null; }); } }
+      function toggleFlash() { var videoEl = document.querySelector("#reader video"); if (!videoEl || !videoEl.srcObject) return; var track = videoEl.srcObject.getVideoTracks()[0]; if (!track) return; isFlashOn = !isFlashOn; track.applyConstraints({ advanced: [{ torch: isFlashOn }] }).catch(function(err){ track.applyConstraints({ torch: isFlashOn }).catch(function(e){ console.log(e); }); }); updateFlashBtn(); }
+      function updateFlashBtn() { if(isFlashOn) $('#camFlash').addClass('active'); else $('#camFlash').removeClass('active'); }
+      $(document).ready(function(){ init(); $('#codeInput').on('keyup', function(e){ if(e.key==='Enter') { doScan($(this).val()); $(this).val(''); } }); });
+</script>
