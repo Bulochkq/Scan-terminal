@@ -1,5 +1,10 @@
 /**
  * APP.JS — логіка терміналу.
+ * Остання зміна: v3.1.5 (див. PROGRESS.md у корені репо)
+ *
+ * v3.1.3: вхід за e-mailом і паролем (auth.js), ролі Vlastník / Správca /
+ * Pracovník. Список «Pracovník» на старті і спільний адмін-PIN прибрано:
+ * хто працює — видно з входу, що йому можна — вирішує база за роллю.
  *
  * Порт зі Scripts.html тестової версії. Поведінка навмисно збережена
  * один-в-один; змінився транспорт (API замість google.script.run) і
@@ -19,7 +24,6 @@ var currentSheetName = '';
 var currentUser = '';
 var sessionId = 'S_' + Math.random().toString(36).slice(2, 11);
 
-var adminPin = null;          // перевіряється НА СЕРВЕРІ, тут лише кешується на сесію
 var lastSyncTime = 0;
 var pingTimer = null;
 var isPinging = false;
@@ -54,7 +58,7 @@ window.escapeHtml = escapeHtml;
 
 function getLoaderHtml(text) {
   return '<div class="spinner-container"><div class="custom-loader"></div>' +
-         '<div class="spinner-text">' + escapeHtml(text || 'Načítavam...') + '</div></div>';
+         '<div class="spinner-text">' + escapeHtml(text || 'Načítavam…') + '</div></div>';
 }
 
 function getBrandBadge(brand) {
@@ -114,6 +118,8 @@ function sndErr()  { playTone(100, 'square', 0.15); }
 var promptResolver = null, confirmResolver = null;
 
 function showMsg(title, text) {
+  // вхід щойно втрачено — причину покаже екран входу, а не купа вікон «Chyba»
+  if (authLost) return;
   $('#msgTitle').text(title);
   $('#msgText').html(escapeHtml(text).replace(/\n/g, '<br>'));
   $('#msgModal').removeClass('hidden');
@@ -127,14 +133,9 @@ function showPrompt(title, placeholder, defaultValue, isPassword) {
     $('#promptInput').val(defaultValue || '')
       .attr('placeholder', placeholder || '')
       .attr('type', isPassword ? 'password' : 'text');
-    $('#promptEye').toggleClass('hidden', !isPassword);
     $('#promptModal').removeClass('hidden');
     setTimeout(function () { $('#promptInput').focus(); }, 50);
   });
-}
-function togglePromptPass() {
-  var $i = $('#promptInput');
-  $i.attr('type', $i.attr('type') === 'password' ? 'text' : 'password');
 }
 function submitPrompt() {
   var v = $('#promptInput').val();
@@ -163,13 +164,40 @@ function answerConfirm(res) {
   confirmResolver = null;
 }
 
+/**
+ * Універсальне вікно очікування (v3.0.2).
+ *
+ * Раніше між діями людини і відповіддю сервера (напр. перевірка PIN) нічого
+ * не показувалось — здавалось, що програма зависла. Тепер будь-яке очікування
+ * показує вікно з анімацією, а якщо Google відповідає повільно — ще й скільки
+ * секунд ми вже чекаємо, щоб було видно, що процес живий.
+ *
+ * Вікно з'являється із затримкою 200 мс: швидкі дії не «блимають».
+ * Повторний виклик setAdminBusy(true, 'новий текст') лише оновлює текст.
+ */
+var busyShowTimer = null, busyTickTimer = null, busyStartedAt = 0, busyActive = false;
+
 function setAdminBusy(busy, text) {
   if (busyTimeout) clearTimeout(busyTimeout);
   if (busy) {
-    $('#adminLoadingText').text(text || 'SPRACOVÁVAM...');
-    $('#adminProcessOverlay').removeClass('hidden');
-    busyTimeout = setTimeout(function () { $('#adminProcessOverlay').addClass('hidden'); }, 180000);
+    $('#adminLoadingText').text(text || 'Spracovávam…');
+    if (!busyActive) {
+      busyActive = true;
+      busyStartedAt = Date.now();
+      $('#adminLoadingHint').text('');
+      busyShowTimer = setTimeout(function () { $('#adminProcessOverlay').removeClass('hidden'); }, 200);
+      busyTickTimer = setInterval(function () {
+        var s = Math.round((Date.now() - busyStartedAt) / 1000);
+        if (s >= 20)     $('#adminLoadingHint').text('Server odpovedá pomaly… ' + s + ' s');
+        else if (s >= 4) $('#adminLoadingHint').text('Čakám na server… ' + s + ' s');
+      }, 1000);
+    }
+    // страховка: вікно ніколи не лишиться висіти назавжди
+    busyTimeout = setTimeout(function () { setAdminBusy(false); }, 180000);
   } else {
+    busyActive = false;
+    clearTimeout(busyShowTimer);
+    clearInterval(busyTickTimer);
     $('#adminProcessOverlay').addClass('hidden');
   }
 }
@@ -177,31 +205,234 @@ window.setAdminBusy = setAdminBusy;
 window.showMsg = showMsg;
 window.showConfirm = showConfirm;
 
+window.showPrompt = showPrompt;
+
+// ------------------------------------------------------------ вхід (v3.1.3)
+
 /**
- * ВИПРАВЛЕНО: PIN більше не порівнюється в браузері.
- * Раніше в коді сторінки лежав рядок if (p !== "85592") — тобто секрет бачив
- * будь-хто, хто відкрив «переглянути код». Тепер перевіряє сервер.
+ * Екран входу. Спільний адмін-PIN (v3.0–v3.1.2) прибрано: його знали всі, хто
+ * хоч раз адміністрував, і в журналі не було видно, ХТО саме щось змінив.
+ * Тепер у кожного свій e-mail і пароль, а що можна — вирішує роль у базі.
  */
-function ensurePin() {
-  if (adminPin) return Promise.resolve(adminPin);
-  return showPrompt('🔑 Admin PIN:', '', '', true).then(function (p) {
-    if (p === null || p === '') return null;
-    return API.auth(p).then(function (res) {
-      if (res.valid) { adminPin = p; return p; }
-      showMsg('Chyba', '⛔ Nesprávny PIN');
-      return null;
-    }).catch(function (e) {
-      showMsg('Chyba', errText(e));
-      return null;
-    });
+var loginMode = 'login';          // 'login' | 'register' (перший вхід запрошеного)
+var authLost = false;
+
+/** Помилка під активною формою (вхід або перший вхід). */
+function showLoginErr(text) {
+  var $e = $(loginMode === 'register' ? '#regErr' : '#loginErr');
+  $('#loginErr, #regErr').addClass('hidden').text('');
+  $e.toggleClass('hidden', !text).text(text || '');
+}
+
+/**
+ * v3.1.4: дві окремі форми замість однієї з перемиканням атрибутів — див.
+ * коментар у index.html (менеджер паролів Chrome пропонує пароль лише тоді,
+ * коли поле з самого початку позначене як «нове»).
+ */
+function setLoginMode(mode) {
+  var reg = mode === 'register';
+  // e-mail переносимо в іншу форму, щоб не набирати двічі
+  var email = $(loginMode === 'register' ? '#regEmail' : '#loginEmail').val();
+  loginMode = mode;
+  if (email) $(reg ? '#regEmail' : '#loginEmail').val(email);
+  $('#loginForm').toggleClass('hidden', reg);
+  $('#regForm').toggleClass('hidden', !reg);
+  $('#loginModeBtn').html(reg ? icon('arrow-left') + '<span>Už mám heslo — prihlásiť sa</span>'
+                              : '<span>Prvé prihlásenie — vytvoriť si heslo</span>');
+  $('#loginHint').text(reg
+    ? 'Funguje len pre e-mail, ktorý správca pridal v časti „Ľudia a prístupy“.'
+    : 'Účet vám vytvorí správca. Heslo ste zabudli? Nové vám nastaví správca.');
+  showLoginErr('');
+}
+function toggleLoginMode() {
+  setLoginMode(loginMode === 'login' ? 'register' : 'login');
+  var first = loginMode === 'register' ? ($('#regEmail').val() ? '#regPass' : '#regEmail')
+                                       : ($('#loginEmail').val() ? '#loginPass' : '#loginEmail');
+  setTimeout(function () { $(first).focus(); }, 30);
+}
+
+/** Прибрати все, що лишилось від попередньої людини, і показати вхід. */
+function showLogin(message) {
+  stopPing();
+  if (typeof Editor !== 'undefined' && $('#editorModal').is(':visible')) Editor.closeNow();
+  $('#logsModal, #peopleModal, #personModal, #pwModal, #sheetModal, #importModal, #backupModal, #statsModal, #promptModal, #confirmModal').addClass('hidden');
+  if (typeof LogView !== 'undefined') LogView.close();
+  if (typeof Sheets !== 'undefined') Sheets.reset();
+  setAdminBusy(false);
+  closeAdminPanel();
+  currentItem = null;
+  setLocalDB([]);
+  currentSheetId = '';
+  currentUser = '';
+  $('#productCard, #errCard').addClass('hidden');
+  $('#waitingMsg').removeClass('hidden');
+  $('#qtyControls').addClass('disabled-ctrl');
+
+  $('#setupOverlay').removeClass('hidden');
+  $('#setupCard').addClass('hidden');
+  $('#loginCard').removeClass('hidden');
+  setLoginMode('login');
+  if (!$('#loginEmail').val()) $('#loginEmail').val(readLocal('termLastEmail') || '');
+  $('#loginPass, #regPass, #regPass2').val('');
+  if (message) showLoginErr(message);
+  authLost = false;
+  setTimeout(function () { $($('#loginEmail').val() ? '#loginPass' : '#loginEmail').focus(); }, 50);
+}
+
+function showSetup() {
+  $('#loginCard').addClass('hidden');
+  $('#setupCard').removeClass('hidden');
+  renderMe();
+}
+
+/**
+ * Картка «хто увійшов». v3.1.4: власнику і správcovi адміністрація відкрита
+ * одразу (запит власника) — кнопка «Administrácia» лишається лише для того,
+ * щоб відкрити її знову після закриття.
+ */
+function renderMe() {
+  var me = Auth.me();
+  $('#meName').text(me ? me.name : 'Načítavam účet…');
+  $('#meRole').text(me ? Auth.roleLabel(me.role) + ' · ' + me.email : '');
+  $('#meAvatar').text(me ? Auth.initials(me.name) : '…').attr('class', 'me-av' + (me ? ' role-' + me.role : ''));
+  currentUser = me ? me.name : '';
+  if (Auth.can('admin')) {
+    if ($('#adminCard').hasClass('hidden') && !adminClosedByUser) showAdminPanel();
+    else $('#adminOpenBtn').toggleClass('hidden', !$('#adminCard').hasClass('hidden'));
+  } else {
+    closeAdminPanel();
+    $('#adminOpenBtn').addClass('hidden');
+  }
+}
+
+function doLogin(ev) {
+  if (ev && ev.preventDefault) ev.preventDefault();
+  var email = String($('#loginEmail').val() || '').trim().toLowerCase();
+  var pass = String($('#loginPass').val() || '');
+  if (!email || !pass) { showLoginErr('Zadajte e-mail aj heslo.'); return; }
+  submitAuth(Auth.signIn(email, pass), email, '#loginBtn', 'Prihlasujem…');
+}
+
+/** Перший вхід запрошеної людини: сама задає пароль. */
+function doRegister(ev) {
+  if (ev && ev.preventDefault) ev.preventDefault();
+  var email = String($('#regEmail').val() || '').trim().toLowerCase();
+  var pass = String($('#regPass').val() || '');
+  if (!email || !pass) { showLoginErr('Zadajte e-mail aj heslo.'); return; }
+  if (pass.length < 6) { showLoginErr('Heslo musí mať aspoň 6 znakov.'); return; }
+  if (pass !== $('#regPass2').val()) { showLoginErr('Heslá sa nezhodujú.'); return; }
+  submitAuth(Auth.signUp(email, pass), email, '#regBtn', 'Vytváram…');
+}
+
+function submitAuth(promise, email, btn, busyText) {
+  showLoginErr('');
+  var $btn = $(btn), html = $btn.html();
+  $btn.prop('disabled', true).html(icon('loader-circle', 'ic-spin') + '<span>' + busyText + '</span>');
+  promise.then(function () {
+    writeLocal('termLastEmail', email);
+    $('#loginPass, #regPass, #regPass2').val('');
+    authLost = false;
+    adminClosedByUser = false;
+    showSetup();
+    loadInitData();
+  }).catch(function (e) {
+    showLoginErr(errText(e));
+  }).then(function () {
+    $btn.prop('disabled', false).html(html);
   });
 }
-window.ensurePin = ensurePin;
+
+/**
+ * Вихід. Якщо на пристрої лежать ще не відправлені скани (не було інтернету),
+ * спершу пробуємо їх дослати. Не вийшло — чесно питаємо: після виходу вони
+ * лишаться на пристрої і підуть під ім'ям наступного, хто тут увійде (кількість
+ * при цьому правильна — губити скани гірше, ніж підпис у журналі).
+ */
+function doLogout() {
+  if (isBatching) flushChanges();
+  var pending = Outbox.count();
+  (pending ? flushOutbox() : Promise.resolve(0)).then(function (left) {
+    if (!left) return true;
+    return showConfirm('Neodoslané skeny',
+      'Na tomto zariadení čaká ' + left + ' zmien na odoslanie (asi nie je internet).\n' +
+      'Po odhlásení zostanú uložené a odošlú sa hneď, ako sa tu niekto prihlási — v histórii potom budú pod jeho menom.\n\n' +
+      'Odhlásiť sa aj tak?', true);
+  }).then(function (ok) {
+    if (!ok) return;
+    return Auth.signOut().then(function () { showLogin(''); });
+  });
+}
+
+/**
+ * Зміна СВОГО пароля (зі стартового екрана і з «Ľudia a prístupy»).
+ * v3.1.4: окрема форма з полями «нове heslo» замість двох вікон-запитань —
+ * так менеджер паролів у браузері запропонує надійний пароль і оновить збережений.
+ */
+function changeOwnPassword() {
+  var me = Auth.me();
+  if (!me) return;
+  $('#pwWho').text(me.name + ' · ' + me.email);
+  $('#pwUser').val(me.email);
+  $('#pwNew, #pwNew2').val('');
+  $('#pwErr').addClass('hidden').text('');
+  $('#pwModal').removeClass('hidden');
+  setTimeout(function () { $('#pwNew').focus(); }, 50);
+}
+function closePw() { $('#pwModal').addClass('hidden'); $('#pwNew, #pwNew2').val(''); }
+
+function savePw(ev) {
+  if (ev && ev.preventDefault) ev.preventDefault();
+  var p1 = String($('#pwNew').val() || ''), p2 = String($('#pwNew2').val() || '');
+  var err = function (t) { $('#pwErr').toggleClass('hidden', !t).text(t || ''); };
+  if (p1.length < 6) { err('Heslo musí mať aspoň 6 znakov.'); return; }
+  if (p1 !== p2) { err('Heslá sa nezhodujú.'); return; }
+  err('');
+  var $btn = $('#pwSaveBtn').prop('disabled', true).text('Ukladám…');
+  Auth.changePassword(p1).then(function () {
+    closePw();
+    showMsg('Hotovo', 'Heslo je zmenené. Nabudúce sa prihláste novým heslom.');
+  }).catch(function (e) {
+    err(errText(e));
+  }).then(function () { $btn.prop('disabled', false).text('Uložiť heslo'); });
+}
+window.changeOwnPassword = changeOwnPassword;
+
+/**
+ * База відхилила вхід: токен уже не оновити, акаунт вимкнули або видалили.
+ * Незавершену «пачку» кладемо в чергу (скан справжній — дошлеться після входу),
+ * виходимо на пристрої і показуємо причину на екрані входу.
+ */
+window.onAuthError = function (err) {
+  if (authLost) return;
+  authLost = true;
+  var entry = takeBatchEntry();
+  if (entry) { Outbox.add(entry); updateOutboxUI(); }
+  var msg = (err && err.message && !/^HTTP \d+$/.test(err.message)) ? err.message : 'Prihlásenie vypršalo. Prihláste sa znova.';
+  if (/JWT|token|permission denied/i.test(msg)) msg = 'Prihlásenie vypršalo. Prihláste sa znova.';
+  Auth.signOut().then(function () { showLogin(msg); });
+};
+
+/** Бібліотека сама помітила, що вхід закінчився (напр. вихід в іншій вкладці). */
+window.onSignedOut = function () {
+  if (!$('#loginCard').hasClass('hidden')) return;
+  var entry = takeBatchEntry();
+  if (entry) Outbox.add(entry);
+  showLogin('Boli ste odhlásený.');
+};
 
 // ------------------------------------------------------------ селекти
 
-function renderCustomSelects() {
-  $('.custom-select:not(#camSelect)').each(function () {
+/**
+ * Стилізовані випадні списки: кожен <select class="custom-select"> отримує
+ * власний список у стилі програми (системний виглядає на кожному пристрої
+ * по-своєму). root — оновити лише селекти всередині цього блоку.
+ *
+ * v3.1.4: + неактивні пункти (сірі, з підказкою «чому» в title),
+ *         + компактний варіант (<select class="custom-select cs-compact">),
+ *         + список відкривається ВГОРУ, якщо внизу екрана не вміщується.
+ */
+function renderCustomSelects(root) {
+  $(root || document).find('.custom-select').each(function () {
     var $sel = $(this);
     var $wrapper, $trigger, $options;
 
@@ -210,44 +441,60 @@ function renderCustomSelects() {
       $trigger = $wrapper.find('.custom-select-trigger');
       $options = $wrapper.find('.custom-options');
     } else {
-      $sel.wrap('<div class="custom-select-wrapper"></div>');
+      // варіанти вигляду (cs-compact, cs-dark) — з класів самого select
+      var variants = (($sel.attr('class') || '').match(/\bcs-[a-z]+/g) || []).join(' ');
+      $sel.wrap('<div class="custom-select-wrapper' + (variants ? ' ' + variants : '') + '"></div>');
       $sel.after('<div class="custom-select-trigger"></div><div class="custom-options"></div>');
       $wrapper = $sel.parent();
       $trigger = $wrapper.find('.custom-select-trigger');
       $options = $wrapper.find('.custom-options');
 
       $trigger.on('click', function (e) {
+        e.stopPropagation();
         if ($sel.prop('disabled')) return;
         $('.custom-select-wrapper').not($wrapper).removeClass('open');
-        $wrapper.toggleClass('open');
-        e.stopPropagation();
+        var opening = !$wrapper.hasClass('open');
+        if (opening) {
+          // місця внизу мало (останній рядок у списку, низ екрана) — відкрити вгору
+          var r = $wrapper[0].getBoundingClientRect();
+          var need = Math.min(280, $options[0].scrollHeight || 200) + 12;
+          // cs-up — завжди вгору (вибір камери внизу екрана, під ним кнопки камери)
+          $wrapper.toggleClass('open-up', $wrapper.hasClass('cs-up') || (window.innerHeight - r.bottom < need && r.top > need));
+        }
+        $wrapper.toggleClass('open', opening);
       });
       $wrapper.on('click', '.custom-option', function (e) {
         var $o = $(this);
+        e.stopPropagation();
+        if ($o.hasClass('disabled')) return;
         $wrapper.removeClass('open');
         // ВИПРАВЛЕНО: .data() приводить типи — ID аркуша "0012" ставало числом 12.
         // .attr() віддає рядок як є.
         $sel.val($o.attr('data-value')).trigger('change');
         $options.find('.custom-option').removeClass('selected');
         $o.addClass('selected');
-        $trigger.html(escapeHtml($o.text()) + '<span class="custom-arrow">▼</span>');
-        e.stopPropagation();
+        $trigger.html('<span class="cs-text">' + escapeHtml($o.text()) + '</span>' + icon('chevron-down', 'custom-arrow'));
       });
     }
 
     var selText = $sel.find('option:selected').text() || $sel.find('option').first().text() || '';
-    $trigger.html(escapeHtml(selText) + '<span class="custom-arrow">▼</span>');
+    $trigger.html('<span class="cs-text">' + escapeHtml(selText) + '</span>' + icon('chevron-down', 'custom-arrow'));
     $trigger.toggleClass('disabled', !!$sel.prop('disabled'));
+    $trigger.attr('title', $sel.attr('title') || null);
 
     $options.empty();
     $sel.children('option').each(function () {
       var $o = $(this);
       if ($o.prop('disabled') && $o.val() === '') return;
-      $options.append('<div class="custom-option' + ($o.is(':selected') ? ' selected' : '') +
-                      '" data-value="' + escapeHtml($o.val()) + '">' + escapeHtml($o.text()) + '</div>');
+      var off = $o.prop('disabled');
+      $options.append('<div class="custom-option' + ($o.is(':selected') ? ' selected' : '') + (off ? ' disabled' : '') +
+                      '" data-value="' + escapeHtml($o.val()) + '"' +
+                      (off && $o.attr('title') ? ' title="' + escapeHtml($o.attr('title')) + '"' : '') + '>' +
+                      escapeHtml($o.text()) + '</div>');
     });
   });
 }
+window.renderCustomSelects = renderCustomSelects;
 
 $(document).on('click', function (e) {
   if (!$(e.target).closest('.custom-select-wrapper').length) $('.custom-select-wrapper').removeClass('open');
@@ -262,8 +509,8 @@ function toggleFilterPopover(e) {
 // ------------------------------------------------------------ старт
 
 function init() {
-  $('#suVersion').text('v' + CFG.APP_VERSION);
-  $('#suSite').text(CFG.SITE_NAME || '—');
+  $('.js-version').text('v' + CFG.APP_VERSION);
+  $('.js-site').text(CFG.SITE_NAME || '—');
 
   if (/Mobi|Android|iPhone|iPad/i.test(navigator.userAgent)) {
     $('#manualToggleBtn, #cameraBtn').show();
@@ -279,18 +526,20 @@ function init() {
   } catch (e) {}
 
   if (!API.isConfigured()) {
-    showMsg('Nie je nastavené API',
-      'Otvorte súbor web/js/config.js a vložte adresu svojho Apps Script (končí na /exec).');
+    showMsg('Nie je nastavená databáza',
+      'Otvorte súbor web/js/config.js a vyplňte SUPABASE_URL a SUPABASE_KEY.');
   }
 
-  // ШВИДКІСТЬ: будимо Apps Script одразу при відкритті сторінки.
-  // Після простою Google піднімає екземпляр скрипта заново, і перша дія
-  // платить 5–10 секунд — саме звідси бралось «учора створення складу
-  // тривало 10 секунд, а сьогодні 2». Поки людина обирає користувача
-  // і склад, скрипт уже прогрітий.
-  API.warm().catch(function () {});
-
-  loadInitData();
+  // v3.1.3: є збережений вхід — одразу вибір складу (база підтвердить у фоні),
+  // немає — екран входу.
+  if (typeof supabase === 'undefined') {
+    showLogin('Knižnica prihlásenia sa nenačítala. Skontrolujte internet a obnovte stránku.');
+  } else if (Auth.start()) {
+    showSetup();
+    loadInitData();
+  } else {
+    showLogin('');
+  }
 
   $('#pNoteInput').on('input', function () {
     var val = $(this).val();
@@ -313,22 +562,13 @@ function init() {
     if (e.key === 'Enter') { doScan($(this).val()); $(this).val(''); }
   });
 
-  // ВИПРАВЛЕНО: тут викликався звичайний fetch, який браузер при закритті
-  // вкладки скасовує — тобто останнє сканування перед закриттям губилось.
-  // sendBeacon саме для цього й існує: браузер дошле запит уже після виходу.
+  // Закриття вкладки посеред «пачки» натискань: зміна кладеться в чергу
+  // (localStorage) І паралельно пробує дійти до бази. Якщо дійде — повтор з
+  // черги нічого не додасть удруге (той самий opId); якщо ні — дошлеться
+  // при наступному відкритті. v3.1.0
   window.addEventListener('pagehide', function () {
-    if (isBatching && currentItem && pendingDelta !== 0) {
-      API.writeBeacon({
-        row: currentItem.row,
-        plu: currentItem.plu,
-        forceValue: currentItem.real,
-        clientOldValue: batchStartValue,
-        type: currentActionType,
-        timestamp: batchTimestamp
-      }, currentSheetId, currentUser, sessionId);
-      isBatching = false; pendingDelta = 0;
-    }
-    if (currentSheetId) API.leaveBeacon(currentSheetId, sessionId);
+    var entry = takeBatchEntry();
+    if (entry) { Outbox.add(entry); API.scanKeepalive(entry); }
   });
   window.addEventListener('online', function () { updateSyncUI('online'); flushOutbox(); });
   window.addEventListener('offline', function () { updateSyncUI('offline'); });
@@ -337,71 +577,122 @@ function init() {
   updateOutboxUI();
 }
 
+/**
+ * ШВИДКІСТЬ: список складів запам'ятовується на пристрої.
+ *
+ * Apps Script відповідав на init від 2 до 70 секунд, і весь цей час стартовий
+ * екран був мертвий. Тепер останній отриманий список показується миттєво, а
+ * свіжий підтягується у фоні і тихо замінює його (вибране не скидається).
+ * v3.1.3: той самий запит повертає профіль того, хто увійшов (ім'я, роль).
+ */
+var INIT_CACHE_KEY = 'termInit_v2';
+
+function readLocal(key) {
+  try { return localStorage.getItem(key); } catch (e) { return null; }
+}
+function writeLocal(key, val) {
+  try { localStorage.setItem(key, val); } catch (e) {}
+}
+
 function loadInitData() {
-  $('#setupUserSelect, #setupSheetSelect, #importSheetSelect').prop('disabled', true);
-  renderCustomSelects();
+  var cached = null;
+  try { cached = JSON.parse(readLocal(INIT_CACHE_KEY) || 'null'); } catch (e) { cached = null; }
+
+  if (cached) {
+    applyInitData(cached);
+  } else {
+    $('#setupSheetSelect').prop('disabled', true);
+    renderCustomSelects();
+  }
 
   API.init().then(function (data) {
-    updateUserSelect(data.users);
-    updateSheetSelects(data.sheets);
-    $('#setupUserSelect, #setupSheetSelect, #importSheetSelect').prop('disabled', false);
-    renderCustomSelects();
-    if (data.pinIsDefault) {
-      console.warn('Admin PIN ще не змінено — виконай setupAdminPin() у редакторі Apps Script.');
+    if (!data.me) {
+      // фронтенд уже новий, а база ще стара (не запущено 003_accounts_roles.sql)
+      showMsg('Databáza nie je aktualizovaná',
+        'V Supabase ešte nebol spustený súbor supabase/migrations/003_accounts_roles.sql.');
+      return;
     }
+    Auth.setMe(data.me);
+    renderMe();
+    writeLocal(INIT_CACHE_KEY, JSON.stringify({ sheets: data.sheets }));
+    applyInitData(data);
   }).catch(function (e) {
-    $('#setupUserSelect, #setupSheetSelect').html('<option>⚠️ Chyba pripojenia</option>');
+    if (e.isAuth) return;            // onAuthError уже показав екран входу
+    // Є збережений список — працюємо з ним, помилку не показуємо:
+    // людина може спокійно почати роботу, а сервер відповість пізніше.
+    if (cached && Auth.me()) { console.warn('init:', errText(e)); return; }
+    $('#setupSheetSelect').html('<option value="">Chyba pripojenia</option>');
     renderCustomSelects();
     showMsg('Chyba pripojenia', errText(e));
   });
 }
 
-function updateUserSelect(users) {
-  var $u = $('#setupUserSelect').empty();
-  $u.append('<option value="" selected disabled>-- Vyberte --</option>');
-  (users || []).forEach(function (u) {
-    $u.append('<option value="' + escapeHtml(u) + '">' + escapeHtml(u) + '</option>');
-  });
+/** Заповнює список складів, зберігаючи те, що вже вибрано (або вибране минулого разу). */
+function applyInitData(data) {
+  var keep = $('#setupSheetSelect').val() || readLocal('termLastSheet');
+  updateSheetSelects(data.sheets);
+  selectIfExists('#setupSheetSelect', keep);
+  $('#setupSheetSelect').prop('disabled', false);
   renderCustomSelects();
 }
 
+function selectIfExists(sel, value) {
+  if (!value) return;
+  var $s = $(sel);
+  var has = $s.find('option').filter(function () { return this.value === String(value); }).length;
+  if (has) $s.val(String(value));
+}
+
+/**
+ * Склади для терміналу. v3.1.4: «Archív» сюди не потрапляє (власник/správca
+ * запускає його з картки складу в адмінці), «Dokončený» підписаний — щоб не
+ * сканувати в уже закритий список випадково.
+ */
+var sheetStatus = {};             // id складу → стан (prep/active/done/archived)
+
 function updateSheetSelects(sheets) {
   var $s = $('#setupSheetSelect').empty();
-  var $i = $('#importSheetSelect').empty();
-  $s.append('<option value="" selected disabled>-- Vyberte --</option>');
-  $i.append('<option value="" selected disabled>-- Vyberte --</option>');
+  $s.append('<option value="" selected disabled>Vyberte…</option>');
+  sheetStatus = {};
+  var list = (sheets || []).filter(function (sh) {
+    sheetStatus[sh.id] = sh.status || 'active';
+    return sh.status !== 'archived';
+  });
 
-  if (!sheets || !sheets.length) {
+  if (!list.length) {
     $s.append('<option value="">(Žiadne sklady)</option>');
   } else {
     // ВИПРАВЛЕНО: раніше в текст опції дописувалась кількість рядків «(1234)»,
     // а потім вирізалась регуляркою /\(\d+\)$/. Склад із назвою на кшталт
     // «Sklad A (2024)» через це втрачав частину назви — а назва складу
-    // використовується для пошуку в логах.
-    sheets.forEach(function (sh) {
-      var opt = '<option value="' + escapeHtml(sh.id) + '">' + escapeHtml(sh.name) + '</option>';
-      $s.append(opt); $i.append(opt);
+    // використовується для пошуку в логах. Назву для терміналу беремо з
+    // data-name, а не з тексту опції (там тепер буває «— Dokončený»).
+    list.forEach(function (sh) {
+      $s.append('<option value="' + escapeHtml(sh.id) + '" data-name="' + escapeHtml(sh.name) + '">' +
+                escapeHtml(sh.name) + (sh.status === 'done' ? ' — Dokončený' : '') + '</option>');
     });
   }
-  renderCustomSelects();
-  updateAdminState();
+  renderCustomSelects($s.closest('.su-field'));
 }
 
+/** Оновити склади всюди: вибір для терміналу і список в адмінці. */
 function refreshSheetList() {
   $('.ref-btn').addClass('busy');
   loadInitData();
+  if (Auth.can('admin') && !$('#adminCard').hasClass('hidden')) Sheets.load();
   setTimeout(function () { $('.ref-btn').removeClass('busy'); }, 800);
 }
+window.refreshSheetList = refreshSheetList;
 
 function updateSyncUI(status, extra) {
   var $p = $('#syncStatus');
   $p.removeClass('s-ok s-save s-err s-queue');
   $('.footer-wrapper, .input-group').removeClass('offline-disabled');
 
-  if (status === 'online')       $p.text('🟢 ONLINE').addClass('s-ok');
-  else if (status === 'saving')  $p.text('💾 UKLADÁM').addClass('s-save');
-  else if (status === 'queue')   $p.text('📥 V RADE: ' + extra).addClass('s-queue');
-  else if (status === 'offline') { $p.text('🔴 OFFLINE').addClass('s-err'); }
+  if (status === 'online')       $p.text('Online').addClass('s-ok');
+  else if (status === 'saving')  $p.text('Ukladám…').addClass('s-save');
+  else if (status === 'queue')   $p.text('Čaká na odoslanie: ' + extra).addClass('s-queue');
+  else if (status === 'offline') { $p.text('Offline').addClass('s-err'); }
 }
 
 function updateOutboxUI() {
@@ -413,108 +704,107 @@ function updateOutboxUI() {
 
 // ------------------------------------------------------------ адмін-панель
 
+/**
+ * v3.1.3: без PIN — панель бачать лише správca і власник (база перевіряє кожну дію окремо).
+ * v3.1.4: відкрита одразу після входу; замість випадного «Sklad» — повний список
+ * складів (sheets.js). Закрив хрестиком — до наступного входу лишається закритою.
+ */
+var adminClosedByUser = false;
+
 function showAdminPanel() {
-  ensurePin().then(function (pin) {
-    if (!pin) return;
-    $('#adminCard').removeClass('hidden');
-    $('#setupGrid').removeClass('single-mode');
-    updateAdminState();
-  });
+  if (!Auth.can('admin')) {
+    showMsg('Administrácia', 'Administrácia je dostupná len pre správcu alebo vlastníka.');
+    return;
+  }
+  adminClosedByUser = false;
+  $('#adminCard').removeClass('hidden');
+  $('#adminOpenBtn').addClass('hidden');
+  $('#setupGrid').removeClass('single-mode');
+  Sheets.load();
 }
-function closeAdminPanel() {
+function closeAdminPanel(byUser) {
+  if (byUser) adminClosedByUser = true;
   $('#adminCard').addClass('hidden');
   $('#setupGrid').addClass('single-mode');
-}
-function updateAdminState() {
-  var v = $('#importSheetSelect').val();
-  $('#adminDependent').toggleClass('ag-disabled', !v);
-}
-
-function reqAddUser() {
-  showPrompt('Meno pracovníka:', 'Meno', '').then(function (name) {
-    if (!name) return;
-    setAdminBusy(true, 'PRIDÁVAM...');
-    return API.userAdd(name).then(function (r) {
-      setAdminBusy(false); updateUserSelect(r.users);
-    });
-  }).catch(function (e) { setAdminBusy(false); showMsg('Chyba', errText(e)); });
-}
-
-function reqDelUser() {
-  var name = $('#setupUserSelect').val();
-  if (!name) { showMsg('Info', 'Najprv vyberte užívateľa.'); return; }
-  showConfirm('Vymazať užívateľa?', 'Naozaj vymazať: ' + name + '?', true).then(function (ok) {
-    if (!ok) return;
-    setAdminBusy(true, 'MAŽEM...');
-    return API.userDel(name).then(function (r) {
-      setAdminBusy(false); updateUserSelect(r.users);
-    });
-  }).catch(function (e) { setAdminBusy(false); showMsg('Chyba', errText(e)); });
+  $('#adminOpenBtn').toggleClass('hidden', !Auth.can('admin'));
 }
 
 function reqCreateSheet() {
-  ensurePin().then(function (pin) {
-    if (!pin) return;
-    return showPrompt('Názov skladu:', 'Napr. Sklad A', '').then(function (n) {
-      if (!n) return;
-      setAdminBusy(true, 'VYTVÁRAM SKLAD...');
-      return API.sheetCreate(n, pin).then(function (r) {
-        setAdminBusy(false); showMsg('Hotovo', r.msg); refreshSheetList();
-      });
+  showPrompt('Názov nového skladu', 'Napr. Hayes 2026', '').then(function (n) {
+    if (!n || !n.trim()) return;
+    setAdminBusy(true, 'Vytváram sklad…');
+    return API.sheetCreate(n.trim()).then(function (r) {
+      setAdminBusy(false);
+      refreshSheetList();
+      showMsg('Hotovo', r.msg + '\nDo skladu teraz nahrajte tovar: kliknite naň v zozname a zvoľte „Import zo súboru“.');
     });
   }).catch(function (e) { setAdminBusy(false); showMsg('Chyba', errText(e)); });
 }
 
-function reqDeleteSheet() {
-  var id = $('#importSheetSelect').val();
+function reqDeleteSheet(id, name) {
   if (!id) return;
-  var name = $('#importSheetSelect option:selected').text();
-  ensurePin().then(function (pin) {
-    if (!pin) return;
-    return showConfirm('VYMAZAŤ SKLAD?', '⚠️ Naozaj vymazať sklad «' + name + '»?\nVytvorí sa záloha.', true)
-      .then(function (ok) {
-        if (!ok) return;
-        setAdminBusy(true, 'MAŽEM...');
-        return API.sheetDelete(id, pin).then(function (r) {
-          setAdminBusy(false); showMsg('Hotovo', r.msg); refreshSheetList();
-        });
+  showConfirm('Zmazať sklad?', 'Naozaj vymazať sklad «' + name + '»?\nPred zmazaním sa vytvorí záloha — sklad sa dá obnoviť v časti Zálohy.', true)
+    .then(function (ok) {
+      if (!ok) return;
+      setAdminBusy(true, 'Mažem…');
+      return API.sheetDelete(id).then(function (r) {
+        setAdminBusy(false);
+        Sheets.closeDetail();
+        showMsg('Hotovo', r.msg);
+        refreshSheetList();
       });
-  }).catch(function (e) { setAdminBusy(false); showMsg('Chyba', errText(e)); });
+    }).catch(function (e) { setAdminBusy(false); showMsg('Chyba', errText(e)); });
 }
+window.reqDeleteSheet = reqDeleteSheet;
 
 function reqClearLogs() {
-  ensurePin().then(function (pin) {
-    if (!pin) return;
-    return showConfirm('Vymazať logy?', 'História bude zálohovaná a vymazaná.', true).then(function (ok) {
-      if (!ok) return;
-      setAdminBusy(true, 'MAŽEM...');
-      return API.logsClear(pin).then(function (r) { setAdminBusy(false); showMsg('Hotovo', r.msg); });
+  showConfirm('Vymazať celú históriu?',
+    'História zmien všetkých skladov sa natrvalo vymaže a nedá sa obnoviť.\nOdporúčame ju najprv stiahnuť tlačidlom „Export“.', true).then(function (ok) {
+    if (!ok) return;
+    setAdminBusy(true, 'Mažem históriu…');
+    return API.logsClear().then(function (r) {
+      setAdminBusy(false); showMsg('Hotovo', r.msg);
+      if (document.getElementById('logsModal') && !$('#logsModal').hasClass('hidden')) LogView.reload();
     });
   }).catch(function (e) { setAdminBusy(false); showMsg('Chyba', errText(e)); });
 }
 
 // ------------------------------------------------------------ імпорт / експорт
 
-function openImport() {
-  var id = $('#importSheetSelect').val();
-  if (!id) { showMsg('Info', 'Najprv vyberte sklad.'); return; }
-  $('#impTargetName').text($('#importSheetSelect option:selected').text());
-  Importer.reset();
+/**
+ * v3.1.2: одна таблиця складу (editor.js). З адмін-панелі відкривається лише
+ * для перегляду; правка — кнопкою із замком у самій таблиці.
+ */
+// v3.1.4: склад передається явно (з картки складу в адмінці), а не береться
+// з випадного списку, якого більше немає.
+function openTableEditor(id, name) {
+  if (!id) return;
+  Editor.open({ sheetId: id, sheetName: name, context: 'admin' });
+}
+window.openTableEditor = openTableEditor;
+
+/** v3.1.2: журнал усіх складів у вигляді таблиці (замість прямого доступу до аркуша Log). */
+function openAdminLogs() {
+  LogView.open({ admin: true });
+}
+
+function openImport(id, name) {
+  if (!id) return;
+  $('#impTargetName').text(name);
+  Importer.reset(id, name);
   $('#importModal').removeClass('hidden');
 }
+window.openImport = openImport;
 function closeImport() { $('#importModal').addClass('hidden'); }
 
-function exportSheet() {
-  var id = $('#importSheetSelect').val();
-  if (!id) { showMsg('Info', 'Najprv vyberte sklad.'); return; }
-  var name = $('#importSheetSelect option:selected').text();
-
-  setAdminBusy(true, 'PRIPRAVUJEM XLSX...');
+function exportSheet(id, name) {
+  if (!id) return;
+  setAdminBusy(true, 'Pripravujem XLSX…');
   // SheetJS вантажиться на вимогу — на старті сторінки його немає
   Importer.ensureXlsx()
     .then(function () {
       return API.loadSheet(id, function (done, total) {
-        setAdminBusy(true, 'NAČÍTAVAM ' + done + ' / ' + total);
+        setAdminBusy(true, 'Načítavam ' + done + ' / ' + total);
       });
     })
     .then(function (res) {
@@ -546,15 +836,12 @@ function generateXlsx(data, sheetName) {
 // ------------------------------------------------------------ бекапи
 
 function openBackups() {
-  ensurePin().then(function (pin) {
-    if (!pin) return;
-    $('#backupModal').removeClass('hidden');
-    $('#backupList').html(getLoaderHtml('Hľadám zálohy...'));
-    $('#backupSearchInput').val('');
-    return API.backupList(pin).then(function (res) {
-      currentBackups = res.list || [];
-      filterBackups();
-    });
+  $('#backupModal').removeClass('hidden');
+  $('#backupList').html(getLoaderHtml('Hľadám zálohy...'));
+  $('#backupSearchInput').val('');
+  API.backupList().then(function (res) {
+    currentBackups = res.list || [];
+    filterBackups();
   }).catch(function (e) {
     $('#backupList').html('<div class="list-empty">' + escapeHtml(errText(e)) + '</div>');
   });
@@ -586,304 +873,76 @@ function filterBackups() {
     // складу раніше ламав обидві кнопки.
     var $row = $('<div class="backup-list-item">' +
       '<div class="bu-name">' + escapeHtml(b.name) + '</div>' +
-      '<div class="bu-rows">' + (b.rows || 0) + ' r.</div>' +
+      '<div class="bu-rows">' + (b.rows || 0) + ' r.' + (b.reason ? ' · ' + escapeHtml(b.reason) : '') + '</div>' +
       '<div class="bu-actions">' +
-        '<button class="bu-btn bu-open">✏️ OTVORIŤ</button>' +
-        '<button class="bu-btn bu-del">🗑 ZMAZAŤ</button>' +
+        '<button class="bu-btn bu-open">' + icon('rotate-ccw') + '<span>Obnoviť</span></button>' +
+        '<button class="bu-btn bu-del">' + icon('trash-2') + '<span>Zmazať</span></button>' +
       '</div></div>');
-    $row.find('.bu-open').on('click', function () { closeBackups(); openUniversalList('backup', b.id, b.name); });
+    // v3.1.0: замість «відкрити бекап як склад» — відновлення складу з бекапу
+    $row.find('.bu-open').on('click', function () { reqRestoreBackup(b.id, b.name); });
     $row.find('.bu-del').on('click', function () { reqDeleteBackup(b.id, b.name); });
     $c.append($row);
   });
+}
+
+function reqRestoreBackup(id, name) {
+  showConfirm('Obnoviť zo zálohy?',
+    'Sklad sa nahradí stavom zo zálohy «' + name + '».\nAktuálny stav sa pred tým tiež uloží ako záloha.', true)
+    .then(function (ok) {
+      if (!ok) return;
+      setAdminBusy(true, 'Obnovujem sklad…');
+      return API.backupRestore(id).then(function (r) {
+        setAdminBusy(false); closeBackups(); showMsg('Hotovo', r.msg); refreshSheetList();
+      });
+    }).catch(function (e) { setAdminBusy(false); showMsg('Chyba', errText(e)); });
 }
 
 function reqDeleteBackup(id, name) {
   showConfirm('Vymazať zálohu?', 'Nenávratne zmazať «' + name + '»?', true).then(function (ok) {
     if (!ok) return;
     $('#backupList').html(getLoaderHtml('Mažem...'));
-    return API.backupDelete(id, adminPin).then(function () { openBackups(); });
+    return API.backupDelete(id).then(function () { openBackups(); });
   }).catch(function (e) { showMsg('Chyba', errText(e)); });
 }
 
-// ------------------------------------------------------------ список товарів
+// ------------------------------------------------------------ список товарів (v3.1.2)
 
-function openMissing() { openUniversalList('user'); }
-
-function openUniversalList(mode, overrideId, overrideName) {
-  var sheetId = overrideId || (mode === 'admin' ? $('#importSheetSelect').val() : currentSheetId);
-  if (!sheetId) { showMsg('Info', 'Najprv vyberte sklad!'); return; }
-
-  listState.mode = mode;
-  listState.selectedPlu = null;
-  listState.filter = { all: true, miss: false, extra: false, done: false, note: false };
-  updateUniFilterUI();
-
-  $('#uniSearchInput').val('');
-  $('#uniSortSelect').val('miss_prio');
-  renderCustomSelects();
-  $('#universalListModal').removeClass('hidden');
-  $('#uniListContainer').html(getLoaderHtml('Načítavam...'));
-  $('#uniModalTitle').text(mode === 'user' ? '📦 ZOZNAM' : (mode === 'admin' ? '✏️ EDITOR' : '⌚ ZÁLOHA'));
-  $('#ubAdd').toggleClass('hidden', mode === 'user');
-  updateUniActions();
-
-  if (mode === 'user' && localDB.length) {
-    $('#uniSheetName').text(currentSheetName);
-    renderUniversalList();
-    return;
-  }
-
-  API.loadSheet(sheetId, function (done, total) {
-    $('#uniListContainer').html(getLoaderHtml('Načítavam ' + done + ' / ' + total));
-  }).then(function (res) {
-    setLocalDB(res.data);
-    if (mode !== 'user') currentSheetId = sheetId;
-    $('#uniSheetName').text(overrideName || res.sheetName);
-    renderUniversalList();
-  }).catch(function (e) {
-    $('#universalListModal').addClass('hidden');
-    showMsg('Chyba', errText(e));
-  });
+/**
+ * «Zoznam» у терміналі = та сама таблиця, що й в адмінці (editor.js), відкрита
+ * з уже завантаженого складу — тому миттєво. Правка — лише через замок.
+ */
+function openMissing() {
+  if (!currentSheetId || !localDB.length) { showMsg('Upozornenie', 'Najprv spustite terminál so skladom.'); return; }
+  if (isBatching) flushChanges();
+  Editor.open({ sheetId: currentSheetId, sheetName: currentSheetName, worker: currentUser, context: 'terminal', rows: localDB });
 }
 
-function closeUniversalList() {
-  $('#universalListModal').addClass('hidden');
-  $('.uni-filter-popover').removeClass('active');
+/** «Skenovať» у таблиці: вибраний товар рахується так само, як відсканований (+1). */
+function scanFromList(id) {
+  var idx = rowIndex[id];
+  if (idx === undefined) return;
+  if (isBatching) flushChanges();
+  $('#errCard').addClass('hidden');
+  currentItem = localDB[idx];
+  currentActionType = 'scan';
+  $('#qtyControls').removeClass('disabled-ctrl');
+  modifyItem(1);
+  focusScanInput();
 }
 
-function toggleUniFilter(type) {
-  var f = listState.filter;
-  if (type === 'all') {
-    f.all = $('#chkUniAll').is(':checked');
-    f.miss = f.extra = f.done = f.note = f.all;
-  } else {
-    f[type] = $('#chkUni' + type.charAt(0).toUpperCase() + type.slice(1)).is(':checked');
-    f.all = f.miss && f.extra && f.done && f.note;
-  }
-  updateUniFilterUI();
-  renderUniversalList();
+/** Нотатку змінили в таблиці — оновити і термінал. */
+function onListNote(id, note) {
+  var idx = rowIndex[id];
+  if (idx === undefined) return;
+  localDB[idx].note = note;
+  if (currentItem && currentItem.row === id) $('#pNoteInput').val(note);
 }
 
-function updateUniFilterUI() {
-  var f = listState.filter;
-  $('#chkUniAll').prop('checked', f.all);
-  $('#chkUniMiss').prop('checked', f.miss);
-  $('#chkUniExtra').prop('checked', f.extra);
-  $('#chkUniDone').prop('checked', f.done);
-  $('#chkUniNote').prop('checked', f.note);
-  $('#uniFilterLabel').text(f.all ? 'Všetko' : 'Filtrované');
-}
-
-function renderUniversalList() {
-  var $c = $('#uniListContainer').empty();
-  var term = $('#uniSearchInput').val().toLowerCase().trim();
-  var sort = $('#uniSortSelect').val();
-  var f = listState.filter;
-
-  var filtered = localDB.filter(function (it) {
-    if (term) {
-      var hay = (it.name + ' ' + it.plu + ' ' + it.ean + ' ' + it.code).toLowerCase();
-      if (hay.indexOf(term) === -1) return false;
-    }
-    if (f.all) return true;
-    if (f.miss && it.real < it.plan) return true;
-    if (f.extra && it.real > it.plan) return true;
-    if (f.done && it.real === it.plan) return true;
-    if (f.note && it.note && it.note.trim()) return true;
-    return false;
-  });
-
-  filtered.sort(function (a, b) {
-    switch (sort) {
-      case 'name_asc':  return a.name.localeCompare(b.name);
-      case 'name_desc': return b.name.localeCompare(a.name);
-      case 'qty_desc':  return b.real - a.real;
-      case 'qty_asc':   return a.real - b.real;
-      case 'plan_desc': return b.plan - a.plan;
-      case 'plan_asc':  return a.plan - b.plan;
-      default:          return (b.plan - b.real) - (a.plan - a.real);
-    }
-  });
-
-  if (!filtered.length) { $c.html('<div class="list-empty">Nič sa nenašlo.</div>'); return; }
-
-  var limit = term ? filtered.length : 150;
-  var shown = Math.min(filtered.length, limit);
-  var html = [];
-
-  for (var i = 0; i < shown; i++) {
-    var it = filtered[i];
-    var diff = it.real - it.plan;
-    var cls = 'uni-row ' + (diff < 0 ? 'ac-miss' : (diff > 0 ? 'ac-extra' : 'ac-ok'));
-    if (listState.selectedPlu === it.plu) cls += ' selected-row';
-    var color = diff < 0 ? '#dc2626' : (diff > 0 ? '#d97706' : '#059669');
-    var note = (it.note && it.note.trim())
-      ? '<div class="item-note-display">📝 ' + escapeHtml(it.note) + '</div>' : '';
-
-    html.push(
-      '<div class="' + cls + '" data-plu="' + escapeHtml(it.plu) + '">' +
-        '<div class="ac-info">' +
-          '<div class="ac-name">' + escapeHtml(it.name) + '</div>' +
-          (it.brand ? '<span class="ac-brand">' + escapeHtml(it.brand) + '</span>' : '') +
-          note +
-          '<div class="ac-meta">' +
-            '<span class="ac-pill">PLU: ' + escapeHtml(it.plu) + '</span>' +
-            (it.ean ? '<span class="ac-pill">EAN: ' + escapeHtml(it.ean) + '</span>' : '') +
-          '</div>' +
-        '</div>' +
-        '<div class="ac-stats">' +
-          '<div class="ac-diff" style="color:' + color + '">' + (diff > 0 ? '+' : '') + diff + '</div>' +
-          '<div class="ac-nums">' + it.real + ' / ' + it.plan + '</div>' +
-        '</div>' +
-      '</div>'
-    );
-  }
-  if (filtered.length > shown) {
-    html.push('<div class="list-hint">… ďalších ' + (filtered.length - shown) + ' skrytých — použite hľadanie …</div>');
-  }
-
-  $c.html(html.join(''));
-  // ВИПРАВЛЕНО: було .data('plu') — jQuery перетворював "0012345" на число
-  // 12345, і подальший пошук у localDB не знаходив нічого. PLU з провідними
-  // нулями приходять з ERP постійно, тобто вибір товару просто не працював.
-  $c.find('.uni-row').on('click', function () { selectUniRow($(this).attr('data-plu')); });
-}
-
-function selectUniRow(plu) {
-  plu = String(plu);
-  listState.selectedPlu = (listState.selectedPlu === plu) ? null : plu;
-  updateUniActions();
-  renderUniversalList();
-}
-
-function updateUniActions() {
-  var has = listState.selectedPlu !== null;
-  $('#ubScan, #ubEdit, #ubNote, #ubImg').prop('disabled', !has);
-}
-
-function uniAction(type, e) {
-  if (e) e.stopPropagation();
-  if (type === 'add') { openEditItemModal('new'); return; }
-  if (!listState.selectedPlu) return;
-
-  var item = localDB.find(function (i) { return i.plu === listState.selectedPlu; });
-  if (!item) return;
-
-  if (type === 'scan') {
-    closeUniversalList();
-    if (listState.mode === 'admin') {
-      // ВИПРАВЛЕНО: раніше вхід у термінал з редактора не запускав синхронізацію,
-      // тож зміни інших пристроїв не підтягувались.
-      closeAdminPanel();
-      currentSheetName = $('#uniSheetName').text();
-      currentUser = currentUser || 'Admin';
-      $('#infoUser').text(currentUser);
-      $('#infoSheet').text(currentSheetName);
-      $('#setupOverlay').addClass('hidden');
-      startPing();
-    }
-    doScan(item.plu);
-  } else if (type === 'edit') {
-    openEditItemModal(item.row);
-  } else if (type === 'note') {
-    editNoteFor(item);
-  } else if (type === 'img') {
-    window.open('https://www.google.com/search?tbm=isch&q=' +
-      encodeURIComponent((item.name || '') + ' ' + (item.code || '')), '_blank');
-  }
-}
-
-function editNoteFor(item) {
-  showPrompt('Poznámka — ' + item.name, 'Text poznámky...', item.note || '').then(function (text) {
-    if (text === null || text === item.note) return;
-    updateSyncUI('saving');
-    return API.note(currentSheetId, item.row, text, currentUser || 'Admin').then(function (res) {
-      item.note = res.note;
-      updateOutboxUI();
-      renderUniversalList();
-      if (currentItem && currentItem.plu === item.plu) $('#pNoteInput').val(res.note);
-    });
-  }).catch(function (e) { updateOutboxUI(); showMsg('Chyba', errText(e)); });
-}
-
-// ------------------------------------------------------------ редактор позиції
-
-function openEditItemModal(mode) {
-  if (mode === 'new') {
-    $('#editRowId').val('new');
-    $('#editName,#editPlu,#editCode,#editEan').val('');
-    $('#editPlan,#editReal').val('0');
-    $('#eimTitle').text('NOVÝ TOVAR');
-    $('#btnDelItem').addClass('hidden');
-  } else {
-    var it = localDB.find(function (i) { return i.row === mode; });
-    if (!it) return;
-    $('#editRowId').val(mode);
-    $('#editName').val(it.name); $('#editPlu').val(it.plu);
-    $('#editCode').val(it.code); $('#editEan').val(it.ean);
-    $('#editPlan').val(it.plan); $('#editReal').val(it.real);
-    $('#eimTitle').text('UPRAVIŤ TOVAR');
-    $('#btnDelItem').removeClass('hidden');
-  }
-  $('#editorEditModal').removeClass('hidden');
-}
-function closeEditItemModal() { $('#editorEditModal').addClass('hidden'); }
-
-function saveEditItem() {
-  var rowVal = $('#editRowId').val();
-  var isNew = rowVal === 'new';
-  var data = {
-    name: $('#editName').val(), plu: $('#editPlu').val(), code: $('#editCode').val(),
-    ean: $('#editEan').val(), plan: $('#editPlan').val(), real: $('#editReal').val(), brand: ''
-  };
-  if (!String(data.plu).trim()) { showMsg('Info', 'PLU je povinné.'); return; }
-
-  ensurePin().then(function (pin) {
-    if (!pin) return;
-    $('#btnSaveItem').prop('disabled', true).text('UKLADÁM...');
-
-    var p = isNew
-      ? API.itemCreate(currentSheetId, data, currentUser || 'Admin', pin)
-      : (function () {
-          var row = parseInt(rowVal, 10);
-          var orig = localDB.find(function (i) { return i.row === row; });
-          if (orig) data.brand = orig.brand;
-          return API.itemUpdate(currentSheetId, row, data, currentUser || 'Admin', pin);
-        })();
-
-    return p.then(function () {
-      $('#btnSaveItem').prop('disabled', false).text('💾 ULOŽIŤ');
-      closeEditItemModal();
-      reloadCurrentList();
-    });
-  }).catch(function (e) {
-    $('#btnSaveItem').prop('disabled', false).text('💾 ULOŽIŤ');
-    showMsg('Chyba', errText(e));
-  });
-}
-
-function deleteEditItem() {
-  var rowVal = $('#editRowId').val();
-  if (rowVal === 'new') return;
-  showConfirm('Vymazať tovar?', 'Naozaj vymazať túto položku?', true).then(function (ok) {
-    if (!ok) return;
-    return ensurePin().then(function (pin) {
-      if (!pin) return;
-      return API.itemDelete(currentSheetId, parseInt(rowVal, 10), currentUser || 'Admin', pin)
-        .then(function () { closeEditItemModal(); reloadCurrentList(); });
-    });
-  }).catch(function (e) { showMsg('Chyba', errText(e)); });
-}
-
-function reloadCurrentList() {
-  $('#uniListContainer').html(getLoaderHtml('Obnovujem...'));
-  return API.loadSheet(currentSheetId, function (done, total) {
-    $('#uniListContainer').html(getLoaderHtml('Načítavam ' + done + ' / ' + total));
-  }).then(function (res) {
-    setLocalDB(res.data);
-    renderUniversalList();
-    calcStats();
-  }).catch(function (e) { showMsg('Chyba', errText(e)); });
+/** Таблицю закрили після збереження змін — термінал перечитує склад. */
+function onTableSaved(ctx) {
+  if (ctx === 'terminal' && currentSheetId) refresh(false);
+  // v3.1.5: таблицю відкривали з картки складу — оновити цифри в картці й у списку складів
+  else if (ctx === 'admin' && Auth.can('admin')) Sheets.load();
 }
 
 // ------------------------------------------------------------ робота терміналу
@@ -894,12 +953,50 @@ function setLocalDB(data) {
   for (var i = 0; i < localDB.length; i++) rowIndex[localDB[i].row] = i;
 }
 
-function startApp() {
-  currentUser = $('#setupUserSelect').val();
-  currentSheetId = $('#setupSheetSelect').val();
-  if (!currentUser || !currentSheetId) { showMsg('Info', 'Vyberte užívateľa a sklad!'); return; }
+/**
+ * v3.1.0: до свіжих даних з бази додаються зміни, які ще лежать у черзі
+ * (не дійшли через зв'язок). Інакше після оновлення екран показав би менше,
+ * ніж людина вже нарахувала, і вона б перераховувала вдруге.
+ */
+function applyPendingOverlay() {
+  Outbox.all().forEach(function (e) {
+    if (String(e.sheetId) !== String(currentSheetId)) return;
+    var idx = rowIndex[e.row];
+    if (idx !== undefined) localDB[idx].real = Math.max(0, localDB[idx].real + e.delta);
+  });
+}
 
-  currentSheetName = $('#setupSheetSelect option:selected').text();
+/**
+ * Запуск терміналу. Без параметрів — склад з вибору на стартовому екрані;
+ * з параметрами — з картки складу в адмінці (v3.1.4, там можна і «Archív»).
+ * «Dokončený» — спершу питаємо: інвентуру вже закрили, скан туди, найімовірніше, помилка.
+ */
+function startApp(sheetId, sheetName, status) {
+  var me = Auth.me();
+  if (!me) { showMsg('Upozornenie', 'Počkajte, kým sa načíta váš účet (alebo skontrolujte internet).'); return; }
+  var id = sheetId || $('#setupSheetSelect').val();
+  if (!id) { showMsg('Upozornenie', 'Vyberte sklad!'); return; }
+  var name = sheetName || $('#setupSheetSelect option:selected').attr('data-name') || $('#setupSheetSelect option:selected').text();
+  var st = status || sheetStatus[id];
+
+  var go = function () { launchTerminal(me, id, name); };
+  if (st === 'done' || st === 'archived') {
+    showConfirm('Sklad je ' + (st === 'done' ? 'dokončený' : 'v archíve'),
+      'Inventúra v sklade «' + name + '» je označená ako ' + (st === 'done' ? '„Dokončený“' : '„Archív“') +
+      '.\nNaozaj v ňom chcete skenovať?', false).then(function (ok) { if (ok) go(); });
+    return;
+  }
+  go();
+}
+window.startApp = startApp;
+
+function launchTerminal(me, id, name) {
+  currentUser = me.name;
+  currentSheetId = id;
+  currentSheetName = name;
+  // наступного разу цей склад буде вибраний одразу
+  writeLocal('termLastSheet', currentSheetId);
+  $('#sheetModal').addClass('hidden');
   $('#setupOverlay').addClass('hidden');
   setUiLoading(true, 'Sťahujem databázu...');
   updateSyncUI('online');
@@ -910,15 +1007,17 @@ function startApp() {
     if (!res.data.length) {
       setUiLoading(false);
       $('#setupOverlay').removeClass('hidden');
-      showMsg('Prázdny sklad', 'Tento sklad je prázdny.\nPrejdite do ADMIN ZÓNY a naimportujte tovar.');
+      showMsg('Prázdny sklad', 'Tento sklad je prázdny.\nV administrácii doň naimportujte tovar.');
       return;
     }
     setLocalDB(res.data);
+    applyPendingOverlay();
     lastSyncTime = res.serverTime || Date.now();
     $('#infoUser').text(currentUser);
     $('#infoSheet').text(currentSheetName);
     calcStats();
     setUiLoading(false);
+    focusScanInput();
     startPing();
     flushOutbox();
   }).catch(function (e) {
@@ -930,7 +1029,6 @@ function startApp() {
 
 function resetToSetup() {
   if (isBatching) flushChanges();
-  if (currentSheetId) API.leave(currentSheetId, sessionId).catch(function () {});
   stopPing();
   $('#setupOverlay').removeClass('hidden');
   $('#productCard').addClass('hidden');
@@ -939,14 +1037,16 @@ function resetToSetup() {
   currentItem = null;
   setLocalDB([]);
   currentSheetId = '';
+  // власнику і správcovi адміністрація знову відкрита (якщо сам її не закрив)
+  if (Auth.can('admin') && !adminClosedByUser) showAdminPanel();
   refreshSheetList();
 }
 
 function setUiLoading(loading, text) {
   $('.input-group, .tool-row, .qty-row').toggleClass('ui-disabled', !!loading);
-  if (loading) $('#readyIndicator').html(getLoaderHtml(text || 'Načítavam...')).addClass('busy');
+  if (loading) $('#readyIndicator').html(getLoaderHtml(text || 'Načítavam…')).addClass('busy');
   else {
-    $('#readyIndicator').text('PRIPRAVENÝ').removeClass('busy');
+    $('#readyIndicator').text('Pripravený na skenovanie').removeClass('busy');
     if (!currentItem) $('#qtyControls').addClass('disabled-ctrl');
   }
 }
@@ -960,51 +1060,43 @@ function startPing() {
 function stopPing() { if (pingTimer) clearInterval(pingTimer); pingTimer = null; }
 
 /**
- * ВИПРАВЛЕНО (двічі):
- *  1. Раніше синхронізація раз на 3 секунди вичитувала ВСЮ колонку кількостей.
- *     На 24 000 рядків це спалювало денну квоту Apps Script за кілька годин.
- *     Тепер сервер віддає лише зміни з кеша, а інтервал — 20 секунд.
- *  2. Раніше порівнювалась довжина списку з довжиною колонки, і будь-який
- *     «порожній» рядок у таблиці спричиняв нескінченне перезавантаження.
+ * Синхронізація з базою (v3.1.0): раз на PING_INTERVAL_MS питаємо «що
+ * змінилось з моменту X» — база віддає лише змінені позиції. Кількість з бази
+ * вважається правильною; зверху додаються лише наші ще не відправлені зміни.
+ *
+ * ВИПРАВЛЕНО: раніше синхронізація пропускалась, поки людина сканує, і швидкий
+ * сканер хвилинами не бачив змін інших. Тепер пропускається лише позиція, яку
+ * людина змінює прямо зараз.
  */
 function doPing() {
-  if (!currentSheetId || isPinging || isBatching || !navigator.onLine) return;
+  if (!currentSheetId || isPinging || !navigator.onLine) return;
   isPinging = true;
+  var sheetAtStart = currentSheetId;
 
-  API.ping(currentSheetId, currentUser, sessionId, lastSyncTime)
+  API.changes(currentSheetId, lastSyncTime)
     .then(function (res) {
       isPinging = false;
+      if (sheetAtStart !== currentSheetId) return;
       updateOutboxUI();
 
-      if (res.others && res.others.length) {
-        $('#conflictUser').text(res.others.join(', '));
-        $('#conflictBanner').removeClass('hidden');
-      } else {
-        $('#conflictBanner').addClass('hidden');
-      }
-
-      if (res.stale) { refresh(false); return; }
+      // Позиції додали або видалили — простіше перечитати склад повністю.
+      if (res.count !== localDB.length) { lastSyncTime = res.serverTime; refresh(false); return; }
 
       var changed = false;
-      var userActive = (Date.now() - lastUserActionTime) < 5000;
-
       (res.changes || []).forEach(function (c) {
-        var idx = rowIndex[c.r];
+        // c = [id, real, note, plan, name, plu, ean, code, brand]
+        var idx = rowIndex[c[0]];
         if (idx === undefined) return;
-        if (pendingWrites[c.r]) return;
-        if (currentItem && currentItem.row === c.r && userActive) return;
-        if (localDB[idx].real !== c.v) { localDB[idx].real = c.v; changed = true; }
+        var it = localDB[idx];
+        it.note = c[2]; it.plan = c[3]; it.name = c[4]; it.plu = c[5]; it.ean = c[6]; it.code = c[7]; it.brand = c[8];
+        changed = true;
+        if (pendingWrites[c[0]]) return;                                   // наш запис ще летить
+        if (isBatching && currentItem && currentItem.row === c[0]) return; // людина рахує цю позицію
+        it.real = Math.max(0, c[1] + Outbox.sumFor(currentSheetId, c[0]));
       });
+      lastSyncTime = res.serverTime;
 
-      if (res.serverTime) lastSyncTime = res.serverTime;
-
-      if (changed) {
-        calcStats();
-        if (currentItem && rowIndex[currentItem.row] !== undefined && !userActive) {
-          currentItem.real = localDB[rowIndex[currentItem.row]].real;
-          updateUI();
-        }
-      }
+      if (changed) { calcStats(); refreshCardNumbers(); }
       flushOutbox();
     })
     .catch(function () {
@@ -1014,20 +1106,23 @@ function doPing() {
 }
 
 function refresh(hard) {
-  if (hard && isBatching) flushChanges();
+  // v3.1.0: незавершену «пачку» відправляємо завжди — інакше після заміни
+  // localDB різниця рахувалась би від нового об'єкта і вийшла б неправильною.
+  if (isBatching) flushChanges();
   if (hard) {
     currentItem = null;
     $('#productCard, #errCard').addClass('hidden');
     $('#codeInput').val('');
     $('#waitingMsg').removeClass('hidden');
     $('#qtyControls').addClass('disabled-ctrl');
-    $('#pcLogList').html('<div class="log-placeholder">Čakám na akcie...</div>');
+    $('#pcLogList').html('<div class="log-placeholder">Zatiaľ žiadne skeny</div>');
   }
   setUiLoading(true, 'Obnovujem...');
   API.loadSheet(currentSheetId, function (d, t) { setUiLoading(true, 'Načítavam ' + d + ' / ' + t); })
     .then(function (res) {
       var openPlu = currentItem ? currentItem.plu : null;
       setLocalDB(res.data);
+      applyPendingOverlay();
       lastSyncTime = res.serverTime || Date.now();
       currentSheetName = res.sheetName || currentSheetName;
       $('#infoSheet').text(currentSheetName);
@@ -1065,15 +1160,15 @@ function doScan(code) {
 
   if (matches.length > 1) {
     sndErr();
-    showScanError('⚠️ DUPLIKÁT: ' + code);
-    if (zoomEnabled) flash({ plu: code, name: 'Nájdených viac zhôd', code: '--', ean: '--' }, 'DUPLIKÁT!', 'f-red');
+    showScanError('Kód patrí viacerým položkám: ' + code);
+    if (zoomEnabled) flash({ plu: code, name: 'Nájdených viac zhôd', code: '--', ean: '--' }, 'Duplicitný kód', 'f-red');
     $('#qtyControls').addClass('disabled-ctrl');
     return;
   }
   if (!matches.length) {
     sndErr();
     showScanError('Neznámy kód: ' + code);
-    if (zoomEnabled) flash({ plu: code, name: 'Neznámy kód', code: '--', ean: '--' }, 'CHYBA', 'f-red');
+    if (zoomEnabled) flash({ plu: code, name: 'Neznámy kód', code: '--', ean: '--' }, 'Neznámy kód', 'f-red');
     $('#qtyControls').addClass('disabled-ctrl');
     return;
   }
@@ -1091,7 +1186,7 @@ function act(dir) {
 
   if (currentItem.real + change < 0) {
     sndErr();
-    if (zoomEnabled) flash(currentItem, 'NEMOŽNO ÍSŤ POD 0!', 'f-red');
+    if (zoomEnabled) flash(currentItem, 'Realita nemôže byť pod 0', 'f-red');
     return;
   }
   if (isBatching && lastActionDir !== 0 && Math.sign(change) !== Math.sign(lastActionDir)) flushChanges();
@@ -1101,6 +1196,24 @@ function act(dir) {
   modifyItem(change);
   $('#mq').val(1);
   if (document.activeElement) document.activeElement.blur();
+  focusScanInput();
+}
+
+/**
+ * ВИПРАВЛЕНО (v3.1.0): після +/− фокус лишався «ніде», і наступний скан
+ * пістолетом (він друкує як клавіатура) нікуди не потрапляв. Повертаємо фокус
+ * у поле сканування. На телефоні клавіатура при цьому не вискакує
+ * (inputmode="none"), якщо людина сама не ввімкнула клавіатуру.
+ */
+function focusScanInput() {
+  setTimeout(function () {
+    var el = document.getElementById('codeInput');
+    if (!el || $('#setupOverlay').is(':visible')) return;
+    var active = document.activeElement;
+    if (active && active !== document.body && active !== el &&
+        /INPUT|TEXTAREA|SELECT/.test(active.tagName)) return;   // людина пише нотатку — не заважаємо
+    el.focus();
+  }, 0);
 }
 
 function modifyItem(change) {
@@ -1123,7 +1236,6 @@ function modifyItem(change) {
 
   updateUI();
   pendingDelta += change;
-  pendingWrites[currentItem.row] = true;
 
   updateOptimisticLog(currentItem, batchStartValue, currentItem.real, currentActionType, batchTimestamp);
 
@@ -1137,63 +1249,107 @@ function modifyItem(change) {
   batchTimer = setTimeout(flushChanges, CFG.BATCH_DELAY_MS);
 }
 
-function flushChanges() {
-  if (!currentItem || pendingDelta === 0) return;
-
-  var payload = {
-    row: currentItem.row,
-    plu: currentItem.plu,                 // сервер звіряє PLU перед записом
-    forceValue: currentItem.real,
-    clientOldValue: batchStartValue,
-    type: currentActionType,
-    timestamp: batchTimestamp
+/**
+ * Забирає накопичену «пачку» натискань як одну операцію {opId, delta, ...}
+ * і скидає стан пачки. Повертає null, якщо відправляти нічого.
+ */
+function takeBatchEntry() {
+  if (!isBatching || !currentItem) return null;
+  var delta = currentItem.real - batchStartValue;
+  var entry = delta === 0 ? null : {
+    opId: API.newOpId(), sheetId: currentSheetId, row: currentItem.row, delta: delta,
+    user: currentUser, type: currentActionType, time: batchTimestamp
   };
-  var sheetId = currentSheetId, user = currentUser;
-
-  $('#pcLogList').children().first().removeClass('pending new-item');
   isBatching = false; pendingDelta = 0; batchStartValue = null; lastActionDir = 0;
   if (batchTimer) { clearTimeout(batchTimer); batchTimer = null; }
-
-  updateSyncUI('saving');
-
-  API.write(payload, sheetId, user, sessionId)
-    .then(function () {
-      delete pendingWrites[payload.row];
-      Outbox.remove(sheetId, payload.row);
-      updateOutboxUI();
-    })
-    .catch(function (e) {
-      // ВИПРАВЛЕНО: раніше невдалий запис просто зникав, і наступна
-      // синхронізація тихо повертала стару кількість.
-      // pendingWrites НЕ знімаємо: поки запис лежить у черзі, синхронізація
-      // не має права перетерти локальне (правильне) значення серверним.
-      Outbox.add({ item: payload, sheetId: sheetId, user: user, sessionId: sessionId });
-      updateOutboxUI();
-      if (String(errText(e)).indexOf('ROW_MOVED') !== -1) {
-        showMsg('Dáta sa zmenili', 'Položka sa v hárku presunula. Obnovujem zoznam.');
-        refresh(true);
-      }
-    });
+  return entry;
 }
 
-var isFlushingOutbox = false;
+/**
+ * v3.1.0: у базу йде не «стало 7», а «+3» з унікальним opId. База додає
+ * атомарно, тож двоє людей на одному товарі дають правильну суму, а повтор
+ * при обриві мережі не додає вдруге.
+ */
+function flushChanges() {
+  $('#pcLogList').children().first().removeClass('pending new-item');
+  var entry = takeBatchEntry();
+  if (entry) sendEntry(entry);
+}
 
+function sendEntry(entry) {
+  pendingWrites[entry.row] = (pendingWrites[entry.row] || 0) + 1;
+  updateSyncUI('saving');
+
+  API.scan(entry).then(function (res) {
+    doneWrite(entry.row);
+    if (!res.duplicate) applyServerReal(entry.sheetId, entry.row, res.newReal);
+    updateOutboxUI();
+  }).catch(function (e) {
+    doneWrite(entry.row);
+    if (e.transient || e.isAuth) {
+      // немає зв'язку — зміна чекає в черзі і дошлеться сама (той самий opId).
+      // v3.1.3: так само при втраті входу — скан справжній, піде після входу.
+      Outbox.add(entry);
+      updateOutboxUI();
+    } else {
+      // справжня помилка: позицію видалили тощо — повертаємо правду з бази
+      showMsg('Zmena sa neuložila', errText(e) + '\nObnovujem dáta zo servera.');
+      refresh(false);
+    }
+  });
+}
+
+function doneWrite(row) {
+  pendingWrites[row] = (pendingWrites[row] || 1) - 1;
+  if (pendingWrites[row] <= 0) delete pendingWrites[row];
+}
+
+/**
+ * Відповідь бази — правильна кількість (враховує і зміни інших людей).
+ * Показуємо її + наші ще не відправлені зміни (черга і поточна пачка).
+ */
+function applyServerReal(sheetId, row, serverReal) {
+  if (String(sheetId) !== String(currentSheetId) || pendingWrites[row]) return;
+  var idx = rowIndex[row];
+  if (idx === undefined) return;
+  var it = localDB[idx];
+  var inBatch = isBatching && currentItem && currentItem.row === row;
+  var extra = Outbox.sumFor(sheetId, row) + (inBatch ? currentItem.real - batchStartValue : 0);
+  var val = Math.max(0, serverReal + extra);
+  if (inBatch) batchStartValue += val - it.real;   // різниця пачки лишається тією самою
+  it.real = val;
+  calcStats();
+  refreshCardNumbers();
+}
+
+/** Оновлює лише цифри на картці товару (нотатку, яку людина пише, не чіпає). */
+function refreshCardNumbers() {
+  if (!currentItem || $('#productCard').hasClass('hidden')) return;
+  $('#pPlan').text(currentItem.plan);
+  $('#pReal').text(currentItem.real);
+  var diff = currentItem.real - currentItem.plan;
+  $('#pDiff').text((diff > 0 ? '+' : '') + diff)
+    .css('color', diff === 0 ? '#d97706' : (diff > 0 ? '#059669' : '#dc2626'));
+}
+
+var isFlushingOutbox = null;
+
+/** Досилає чергу. Повертає проміс з кількістю того, що лишилось (v3.1.3 — для виходу). */
 function flushOutbox() {
   // Захист від паралельного запуску: flushOutbox смикається і з ping,
-  // і з події «мережа з'явилась». Два одночасні проходи дублювали записи.
-  if (isFlushingOutbox || !Outbox.count() || !navigator.onLine) return;
-  isFlushingOutbox = true;
+  // і з події «мережа з'явилась» — другий виклик чекає на перший.
+  if (isFlushingOutbox) return isFlushingOutbox;
+  if (!Outbox.count() || !navigator.onLine || !Auth.userId()) return Promise.resolve(Outbox.count());
 
-  Outbox.flush(function (entry, res) {
-    if (res) delete pendingWrites[entry.item.row];
-  }).then(function (left) {
-    isFlushingOutbox = false;
+  isFlushingOutbox = Outbox.flush(function (entry, res, err) {
+    if (res && !res.duplicate) applyServerReal(entry.sheetId, entry.row, res.newReal);
+    if (err) showMsg('Zmena sa neuložila', errText(err));
+  }).catch(function () {}).then(function () {
+    isFlushingOutbox = null;
     updateOutboxUI();
-    if (left === 0) updateSyncUI('online');
-  }).catch(function () {
-    isFlushingOutbox = false;
-    updateOutboxUI();
+    return Outbox.count();
   });
+  return isFlushingOutbox;
 }
 
 function reqSaveNote() {
@@ -1202,20 +1358,20 @@ function reqSaveNote() {
   var $btn = $('#btnSaveNote');
   if ($btn.prop('disabled')) return;
 
-  $btn.prop('disabled', true).text('⏳').removeClass('active-state');
+  $btn.prop('disabled', true).html(icon('loader-circle', 'ic-spin')).removeClass('active-state');
   updateSyncUI('saving');
 
-  API.note(currentSheetId, currentItem.row, txt, currentUser)
+  API.note(currentItem.row, txt)
     .then(function (res) {
       currentItem.note = res.note;
       var idx = rowIndex[currentItem.row];
       if (idx !== undefined) localDB[idx].note = res.note;
       $('#pNoteInput').val(res.note);
-      $btn.prop('disabled', true).text('💾');
+      $btn.prop('disabled', true).html(icon('save'));
       updateOutboxUI();
     })
     .catch(function (e) {
-      $btn.prop('disabled', false).addClass('active-state').text('💾');
+      $btn.prop('disabled', false).addClass('active-state').html(icon('save'));
       updateOutboxUI();
       showMsg('Chyba', 'Poznámku sa nepodarilo uložiť: ' + errText(e));
     });
@@ -1303,7 +1459,7 @@ function updateOptimisticLog(item, oldVal, newVal, type, time) {
   var t = String(time).split(' ')[1] || time;
   $('#lastAction').removeClass('hidden act-success act-danger')
     .addClass(diff >= 0 ? 'act-success' : 'act-danger')
-    .html(escapeHtml(t) + ' | ULOŽENÉ: ' + oldVal + ' ➝ ' + newVal);
+    .html(escapeHtml(t) + ' · uložené: ' + oldVal + ' ' + icon('arrow-right', 'la-arrow') + ' ' + newVal);
 }
 
 function codePills(plu, code, ean) {
@@ -1323,68 +1479,16 @@ function compactLogHtml(time, plu, name, ean, label, badge, oldVal, newVal, code
       '</div>' +
       '<div class="l-act-group"><div class="l-act">' +
         '<span class="act-badge ' + badge + '">' + escapeHtml(label) + '</span>' +
-        '<span class="val-change">' + escapeHtml(String(oldVal)) + ' <span class="la-arrow">➝</span> ' + escapeHtml(String(newVal)) + '</span>' +
+        '<span class="val-change">' + escapeHtml(String(oldVal)) + ' ' + icon('arrow-right', 'la-arrow') + ' ' + escapeHtml(String(newVal)) + '</span>' +
       '</div></div>' +
     '</div>' +
     '<div class="l-codes-row">' + codePills(plu, code, ean) + '</div>';
 }
 
 function openLog() {
-  $('#logModal').removeClass('hidden');
-  $('#logSheetName').text(currentSheetName);
-  var $c = $('#fullLogList').html(getLoaderHtml('Načítavam históriu...'));
-
-  API.logs(currentSheetId).then(function (res) {
-    var logs = res.logs || [];
-    $c.empty();
-    if (!logs.length) { $c.html('<div class="list-empty">Zatiaľ žiadne akcie.</div>'); return; }
-
-    var html = logs.map(function (it) {
-      var act = String(it.action);
-      var badge = act === 'POZNÁMKA' ? 'badge-purple'
-                : (parseInt(it.newVal, 10) < parseInt(it.oldVal, 10) ? 'badge-red' : 'badge-green');
-
-      if (['IMPORT', 'CLEAR', 'DELETE', 'ADMIN', 'ERROR'].indexOf(act) !== -1) {
-        return '<div class="log-admin-row">' +
-          '<div style="font-size:10px;font-weight:700;color:#6b7280;">' + escapeHtml(it.time) + '</div>' +
-          '<div style="font-size:13px;font-weight:800;color:#1f2937;">' + escapeHtml(it.name) + '</div>' +
-          '<div><span class="act-badge ' + badge + '">' + escapeHtml(act) + '</span></div></div>';
-      }
-
-      if (act === 'POZNÁMKA') {
-        return '<div class="fl-row log-note-row">' +
-          '<div class="note-header"><div class="l-info">' +
-            '<span class="l-timestamp">' + escapeHtml(it.time) + '</span>' +
-            '<span class="l-name">' + escapeHtml(it.name) + '</span>' +
-            '<div class="l-codes">' + codePills(it.plu, it.mpn, it.ean) + '</div>' +
-          '</div><div class="l-act"><span class="act-badge badge-purple">POZNÁMKA</span></div></div>' +
-          '<div class="note-body">' +
-            '<div class="note-old"><div class="note-val-label">Bolo:</div><div class="note-val-text" style="color:#6b7280;">' +
-              escapeHtml(it.oldVal || '(prázdne)') + '</div></div>' +
-            '<div class="note-arrow">▼</div>' +
-            '<div class="note-new"><div class="note-val-label" style="color:#7c3aed;">Je:</div><div class="note-val-text">' +
-              escapeHtml(it.newVal || '(prázdne)') + '</div></div>' +
-          '</div></div>';
-      }
-
-      return '<div class="fl-row">' +
-        '<div class="l-info">' +
-          '<span class="l-timestamp">' + escapeHtml(it.time) + ' · ' + escapeHtml(it.user) + '</span>' +
-          '<span class="l-name">' + escapeHtml(it.name) + '</span>' +
-          '<div class="l-codes">' + codePills(it.plu, it.mpn, it.ean) + '</div>' +
-        '</div>' +
-        '<div class="l-act">' +
-          '<span class="act-badge ' + badge + '">' + escapeHtml(act) + '</span>' +
-          '<span class="val-change">' + escapeHtml(it.oldVal) + ' <span class="la-arrow">➝</span> ' + escapeHtml(it.newVal) + '</span>' +
-        '</div></div>';
-    }).join('');
-
-    $c.html(html);
-  }).catch(function (e) {
-    $c.html('<div class="list-empty">' + escapeHtml(errText(e)) + '</div>');
-  });
+  if (!currentSheetId) return;
+  LogView.open({ admin: false, sheetId: currentSheetId, sheetName: currentSheetName });
 }
-function closeLog() { $('#logModal').addClass('hidden'); }
 
 // ------------------------------------------------------------ спалах
 
@@ -1459,6 +1563,8 @@ function startCam() {
       target = (saved && devices.some(function (d) { return d.id === saved; })) ? saved
              : (back || nonFront || devices[devices.length - 1].id);
       $sel.val(target);
+      // v3.1.5: вибір камери — стилізований список (темний, відкривається вгору)
+      renderCustomSelects($('#camSelectWrapper'));
     }
     realStart(target);
   }).catch(function () { realStart(null); });

@@ -1,0 +1,9 @@
+// Деплой фронтенду на Cloudflare: `npx wrangler deploy` з кореня репо.
+// Worker "sklad-terminal" містить тільки статичні файли з папки web/ (без серверного коду).
+{
+  "name": "sklad-terminal",
+  "compatibility_date": "2026-09-01",
+  "assets": {
+    "directory": "./web"
+  }
+}

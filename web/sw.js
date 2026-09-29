@@ -1,5 +1,6 @@
 /**
  * SW.JS — service worker.
+ * Остання зміна: v3.1.5. VERSION нижче піднімати при кожному деплої web/.
  *
  * ЩО БУЛО НЕ ТАК У ПОПЕРЕДНІЙ ВЕРСІЇ:
  *  1. Кешувались не ті бібліотеки: jQuery 3.6 з code.jquery.com і html5-qrcode
@@ -19,19 +20,23 @@
  *  - запити до Apps Script не чіпаються взагалі.
  */
 
-const VERSION = 'v8';
+const VERSION = 'v20';
 const SHELL_CACHE = 'terminal-shell-' + VERSION;
 const LIB_CACHE = 'terminal-libs-' + VERSION;
 
 /** Тільки свої файли — жодного стороннього URL, щоб установка не падала. */
 const SHELL_FILES = [
   './',
-  './index.html',
   './manifest.json',
   './css/app.css',
   './js/config.js',
+  './js/icons.js',
+  './js/auth.js',
   './js/api.js',
   './js/importer.js',
+  './js/editor.js',
+  './js/people.js',
+  './js/sheets.js',
   './js/app.js',
   './icons/icon.svg'
 ];
@@ -40,7 +45,9 @@ const SHELL_FILES = [
 const LIB_HOSTS = [
   'cdnjs.cloudflare.com',
   'cdn.jsdelivr.net',
-  'cdn.sheetjs.com'
+  'cdn.sheetjs.com',
+  'fonts.googleapis.com',
+  'fonts.gstatic.com'
 ];
 
 self.addEventListener('install', (event) => {
@@ -79,9 +86,8 @@ self.addEventListener('fetch', (event) => {
 
   const url = new URL(req.url);
 
-  // Apps Script — завжди напряму в мережу.
-  if (url.hostname.indexOf('script.google') !== -1 ||
-      url.hostname.indexOf('googleusercontent') !== -1) return;
+  // База (Supabase) — завжди напряму в мережу.
+  if (url.hostname.indexOf('supabase.co') !== -1) return;
 
   // Своя статика: спочатку кеш (миттєво), оновлення тягнемо у фоні.
   if (url.origin === self.location.origin) {

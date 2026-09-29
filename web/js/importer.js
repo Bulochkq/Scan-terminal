@@ -1,5 +1,6 @@
 /**
  * IMPORTER.JS — читання PDF та Excel у браузері.
+ * Остання зміна: v3.1.4 (іконки замість емодзі, склад передається явно)
  *
  * Саме заради цього файлу фронтенд і виноситься з Apps Script: там PDF
  * прочитати нічим. Обидва формати зводяться до однієї 2D-сітки, далі йде
@@ -268,13 +269,13 @@
     state.fileName = file.name;
     var isPdf = /\.pdf$/i.test(file.name);
 
-    setAdminBusy(true, 'NAČÍTAVAM KNIŽNICU...');
+    setAdminBusy(true, 'Načítavam knižnicu…');
 
     var ready = isPdf ? ensurePdf() : ensureXlsx();
 
     ready
       .then(function () {
-        setAdminBusy(true, 'ČÍTAM SÚBOR...');
+        setAdminBusy(true, 'Čítam súbor…');
         return isPdf ? readPdf(file) : readSpreadsheet(file);
       })
       .then(function (grid) {
@@ -319,16 +320,18 @@
       $grid.append(
         '<div class="imp-map-field ' + (f.required ? 'req ' : '') + (ok ? 'ok' : '') + '">' +
         '<div class="ed-label">' + escapeHtml(f.label) + (f.required ? ' *' : '') + '</div>' +
-        '<select data-field="' + f.key + '">' + opts.join('') + '</select>' +
+        '<select class="custom-select" data-field="' + f.key + '">' + opts.join('') + '</select>' +
         '</div>'
       );
     });
 
     $grid.find('select').on('change', function () {
-      state.mapping[$(this).data('field')] = parseInt($(this).val(), 10);
+      state.mapping[$(this).attr('data-field')] = parseInt($(this).val(), 10);
       renderMapping();
       updatePreview();
     });
+    // v3.1.4: стилізовані випадні списки, як усюди в програмі
+    renderCustomSelects($grid);
   }
 
   function buildRows() {
@@ -383,63 +386,65 @@
     });
 
     var chips = [
-      '<div class="imp-chip good">✔ Riadkov: ' + rows.length + '</div>',
-      '<div class="imp-chip">📄 ' + escapeHtml(state.fileName) + '</div>'
+      '<div class="imp-chip good">' + icon('circle-check') + '<span>Riadkov: ' + rows.length + '</span></div>',
+      '<div class="imp-chip">' + icon('file-spreadsheet') + '<span>' + escapeHtml(state.fileName) + '</span></div>'
     ];
-    if (dup)    chips.push('<div class="imp-chip warn">⚠ Duplicitné PLU: ' + dup + ' (ponechá sa prvé)</div>');
-    if (noName) chips.push('<div class="imp-chip warn">⚠ Bez názvu: ' + noName + '</div>');
-    if (noPlan) chips.push('<div class="imp-chip">ℹ Plán = 0: ' + noPlan + '</div>');
-    if (!rows.length) chips.push('<div class="imp-chip bad">✖ Skontrolujte priradenie stĺpcov</div>');
+    if (dup)    chips.push('<div class="imp-chip warn">' + icon('triangle-alert') + '<span>Duplicitné PLU: ' + dup + ' (ponechá sa prvé)</span></div>');
+    if (noName) chips.push('<div class="imp-chip warn">' + icon('triangle-alert') + '<span>Bez názvu: ' + noName + '</span></div>');
+    if (noPlan) chips.push('<div class="imp-chip">' + icon('info') + '<span>Plán = 0: ' + noPlan + '</span></div>');
+    if (!rows.length) chips.push('<div class="imp-chip bad">' + icon('circle-x') + '<span>Skontrolujte priradenie stĺpcov</span></div>');
 
     $('#impFileInfo').removeClass('hidden').html(chips.slice(1).join(''));
     $('#impSummary').html(chips.join(''));
   }
 
   function run() {
-    if (!state.parsed.length) { showMsg('Info', 'Nie je čo importovať — skontrolujte priradenie stĺpcov.'); return; }
-    if (state.mapping.plu === -1) { showMsg('Info', 'Stĺpec PLU je povinný.'); return; }
+    if (!state.parsed.length) { showMsg('Upozornenie', 'Nie je čo importovať — skontrolujte priradenie stĺpcov.'); return; }
+    if (state.mapping.plu === -1) { showMsg('Upozornenie', 'Stĺpec PLU je povinný.'); return; }
 
-    var sheetId = $('#importSheetSelect').val();
-    if (!sheetId) { showMsg('Info', 'Najprv vyberte sklad.'); return; }
+    var sheetId = state.sheetId;
+    if (!sheetId) { showMsg('Upozornenie', 'Najprv vyberte sklad.'); return; }
 
     var keepReal = $('#impKeepReal').is(':checked');
     var mode = keepReal ? 'merge' : 'replace';
     var warn = keepReal
-      ? 'Zoznam tovaru sa nahradí, ale už naskenované množstvá zostanú zachované.'
-      : '⚠️ VŠETKY dáta v sklade vrátane naskenovaných množstiev sa nahradia!';
+      ? 'Plán a názvy sa aktualizujú podľa súboru. Naskenované množstvá, poznámky aj položky, ktoré v súbore nie sú, zostanú zachované.'
+      : 'VŠETKY dáta v sklade «' + state.sheetName + '» vrátane naskenovaných množstiev sa nahradia!';
 
     showConfirm('Importovať ' + state.parsed.length + ' položiek?', warn, !keepReal).then(function (ok) {
       if (!ok) return;
-      return ensurePin().then(function (pin) {
-        if (!pin) return;
-        saveTemplate(state.grid[state.headerRow] || [], state.mapping);
-        setAdminBusy(true, 'IMPORTUJEM ' + state.parsed.length + ' POLOŽIEK...');
+      saveTemplate(state.grid[state.headerRow] || [], state.mapping);
+      setAdminBusy(true, 'Importujem ' + state.parsed.length + ' položiek…');
 
-        return API.importRows(sheetId, state.parsed, mode, pin)
-          .then(function (res) {
-            setAdminBusy(false);
-            var msg = res.msg;
-            if (res.duplicateCount) {
-              msg += '\n\n⚠️ Preskočené duplicitné PLU: ' + res.duplicateCount;
-              if (res.duplicates && res.duplicates.length) {
-                msg += '\n(' + res.duplicates.slice(0, 10).join(', ') + ')';
-              }
+      // v3.1.3: без PIN — база пускає імпорт лише správcovi і власнику
+      return API.importRows(sheetId, state.parsed, mode, function (done, total) {
+        setAdminBusy(true, 'Importujem ' + done + ' / ' + total);
+      })
+        .then(function (res) {
+          setAdminBusy(false);
+          var msg = res.msg;
+          if (res.duplicateCount) {
+            msg += '\n\nPreskočené duplicitné PLU: ' + res.duplicateCount;
+            if (res.duplicates && res.duplicates.length) {
+              msg += '\n(' + res.duplicates.slice(0, 10).join(', ') + ')';
             }
-            if (res.backup) msg += '\n\nZáloha: ' + res.backup;
-            closeImport();
-            showMsg('Import hotový', msg);
-            refreshSheetList();
-          })
-          .catch(function (err) {
-            setAdminBusy(false);
-            showMsg('Chyba importu', err.message || String(err));
-          });
-      });
+          }
+          if (res.backup) msg += '\n\nZáloha: ' + res.backup;
+          closeImport();
+          showMsg('Import hotový', msg);
+          refreshSheetList();
+        })
+        .catch(function (err) {
+          setAdminBusy(false);
+          showMsg('Chyba importu', err.message || String(err));
+        });
     });
   }
 
-  function reset() {
-    state = { grid: [], headerRow: -1, mapping: {}, fileName: '', parsed: [] };
+  /** v3.1.4: цільовий склад передається явно (з картки складу), а не з випадного списку. */
+  function reset(sheetId, sheetName) {
+    state = { grid: [], headerRow: -1, mapping: {}, fileName: '', parsed: [],
+              sheetId: sheetId || '', sheetName: sheetName || '' };
     $('#impStepMap, #impStepGo').addClass('hidden');
     $('#impFileInfo').addClass('hidden').empty();
     $('#impMapGrid').empty();

@@ -6,3 +6,6 @@ desktop.ini
 # Temporary files
 *.tmp
 *.log
+
+# Cloudflare wrangler (локальний кеш)
+.wrangler/

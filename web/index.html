@@ -2,6 +2,7 @@
 <html lang="sk">
 
 <head>
+  <!-- Skladový terminál — остання зміна: v3.1.5 (див. PROGRESS.md) -->
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=0, viewport-fit=cover">
   <title>Skladový terminál</title>
@@ -15,59 +16,134 @@
   <link rel="icon" href="icons/icon.svg" type="image/svg+xml">
   <link rel="apple-touch-icon" href="icons/icon.svg">
 
-  <link rel="stylesheet" href="css/app.css">
-
-  <!-- Рукостискання з Google починається одразу, а не при першому запиті -->
-  <link rel="preconnect" href="https://script.google.com" crossorigin>
-  <link rel="preconnect" href="https://script.googleusercontent.com" crossorigin>
+  <!-- Рукостискання з сервером і CDN починається одразу -->
+  <link rel="preconnect" href="https://wpqmzxwqnbnmemjtgsom.supabase.co" crossorigin>
   <link rel="preconnect" href="https://cdnjs.cloudflare.com" crossorigin>
   <link rel="preconnect" href="https://cdn.jsdelivr.net" crossorigin>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+
+  <!-- v3.1.1: єдиний шрифт програми (Inter). Якщо не завантажиться — системний. -->
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="css/app.css">
 
   <!--
-    Версії бібліотек ЗАФІКСОВАНІ навмисно. Раніше html5-qrcode тягнувся без
-    версії — сканер міг зламатись сам по собі після оновлення бібліотеки.
-
-    SheetJS і PDF.js тут НЕМАЄ свідомо: разом це понад мегабайт JavaScript,
-    потрібний лише для імпорту та експорту. Вантажити його на кожен телефон
-    при кожному відкритті заради функції, яка використовується двічі на рік —
-    марно. Вони підвантажуються за потреби (див. loadScript у importer.js).
+    Версії бібліотек ЗАФІКСОВАНІ навмисно. SheetJS, PDF.js і Tabulator тут
+    НЕМАЄ свідомо — вони потрібні лише для імпорту/експорту/таблиці і
+    підвантажуються за потреби (importer.js, editor.js).
   -->
   <script src="https://cdnjs.cloudflare.com/ajax/libs/jquery/3.7.1/jquery.min.js"
           integrity="sha512-v2CJ7UaYy4JwqLDIrZUI/4hqeoQieOmAZNXBeQyjo21dadnwR+8ZaIJVT8EE2iyI61OV8e6M8PP2/4hpQINQ/g=="
           crossorigin="anonymous" referrerpolicy="no-referrer"></script>
   <script src="https://cdn.jsdelivr.net/npm/html5-qrcode@2.3.8/html5-qrcode.min.js" defer></script>
+  <!-- v3.1.3: вхід (Supabase Auth). defer: виконується до старту app.js ($(init) чекає DOMContentLoaded) -->
+  <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2.117.2/dist/umd/supabase.js"
+          integrity="sha384-Rj26LVGvoeRVR6+mwQmFfcR3QOBEwT+ZmuCWpuiqeTzJpCs0ER4ITAWGb4Hiy3Ok"
+          crossorigin="anonymous" defer></script>
 </head>
 
 <body>
+  <!--
+    v3.1.4: ІКОНКИ — однотонні лінійні Lucide (той самий набір, що у Flex Bike Analytics).
+    Емодзі в інтерфейсі не використовуємо. Нова іконка: tools/build-icons.js.
+    У HTML: <svg class="ic"><use href="#i-назва"></use></svg>, у JS: icon('назва').
+  -->
+<!-- ICONS:BEGIN — згенеровано tools/build-icons.js (53 іконок), вручну не правити -->
+<svg xmlns="http://www.w3.org/2000/svg" id="iconSprite" aria-hidden="true" style="position:absolute;width:0;height:0;overflow:hidden">
+<!-- Lucide v1.48.0 — https://lucide.dev — ISC License, Copyright (c) Lucide Icons and Contributors -->
+<symbol id="i-x" viewBox="0 0 24 24"><path d="M18 6 6 18"/><path d="m6 6 12 12"/></symbol>
+<symbol id="i-check" viewBox="0 0 24 24"><path d="M20 6 9 17l-5-5"/></symbol>
+<symbol id="i-plus" viewBox="0 0 24 24"><path d="M5 12h14"/><path d="M12 5v14"/></symbol>
+<symbol id="i-minus" viewBox="0 0 24 24"><path d="M5 12h14"/></symbol>
+<symbol id="i-search" viewBox="0 0 24 24"><path d="m21 21-4.34-4.34"/><circle cx="11" cy="11" r="8"/></symbol>
+<symbol id="i-refresh-cw" viewBox="0 0 24 24"><path d="M3 12a9 9 0 0 1 9-9 9.75 9.75 0 0 1 6.74 2.74L21 8"/><path d="M21 3v5h-5"/><path d="M21 12a9 9 0 0 1-9 9 9.75 9.75 0 0 1-6.74-2.74L3 16"/><path d="M8 16H3v5"/></symbol>
+<symbol id="i-loader-circle" viewBox="0 0 24 24"><path d="M21 12a9 9 0 1 1-6.219-8.56"/></symbol>
+<symbol id="i-info" viewBox="0 0 24 24"><circle cx="12" cy="12" r="10"/><path d="M12 16v-4"/><path d="M12 8h.01"/></symbol>
+<symbol id="i-triangle-alert" viewBox="0 0 24 24"><path d="m21.73 18-8-14a2 2 0 0 0-3.48 0l-8 14A2 2 0 0 0 4 21h16a2 2 0 0 0 1.73-3"/><path d="M12 9v4"/><path d="M12 17h.01"/></symbol>
+<symbol id="i-circle-check" viewBox="0 0 24 24"><circle cx="12" cy="12" r="10"/><path d="m16 9-5.5 5.5L8 12"/></symbol>
+<symbol id="i-circle-x" viewBox="0 0 24 24"><circle cx="12" cy="12" r="10"/><path d="m15 9-6 6"/><path d="m9 9 6 6"/></symbol>
+<symbol id="i-chevron-down" viewBox="0 0 24 24"><path d="m6 9 6 6 6-6"/></symbol>
+<symbol id="i-chevron-right" viewBox="0 0 24 24"><path d="m9 18 6-6-6-6"/></symbol>
+<symbol id="i-arrow-left" viewBox="0 0 24 24"><path d="m12 19-7-7 7-7"/><path d="M19 12H5"/></symbol>
+<symbol id="i-arrow-right" viewBox="0 0 24 24"><path d="M5 12h14"/><path d="m12 5 7 7-7 7"/></symbol>
+<symbol id="i-package" viewBox="0 0 24 24"><path d="M11 21.73a2 2 0 0 0 2 0l7-4A2 2 0 0 0 21 16V8a2 2 0 0 0-1-1.73l-7-4a2 2 0 0 0-2 0l-7 4A2 2 0 0 0 3 8v8a2 2 0 0 0 1 1.73z"/><path d="M12 22V12"/><polyline points="3.29 7 12 12 20.71 7"/><path d="m7.5 4.27 9 5.15"/></symbol>
+<symbol id="i-warehouse" viewBox="0 0 24 24"><path d="M18 21V10a1 1 0 0 0-1-1H7a1 1 0 0 0-1 1v11"/><path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V8a2 2 0 0 1 1.132-1.803l7.95-3.974a2 2 0 0 1 1.837 0l7.948 3.974A2 2 0 0 1 22 8z"/><path d="M6 13h12"/><path d="M6 17h12"/></symbol>
+<symbol id="i-shield" viewBox="0 0 24 24"><path d="M20 13c0 5-3.5 7.5-7.66 8.95a1 1 0 0 1-.67-.01C7.5 20.5 4 18 4 13V6a1 1 0 0 1 1-1c2 0 4.5-1.2 6.24-2.72a1.17 1.17 0 0 1 1.52 0C14.51 3.81 17 5 19 5a1 1 0 0 1 1 1z"/></symbol>
+<symbol id="i-settings" viewBox="0 0 24 24"><path d="M9.671 4.136a2.34 2.34 0 0 1 4.659 0 2.34 2.34 0 0 0 3.319 1.915 2.34 2.34 0 0 1 2.33 4.033 2.34 2.34 0 0 0 0 3.831 2.34 2.34 0 0 1-2.33 4.033 2.34 2.34 0 0 0-3.319 1.915 2.34 2.34 0 0 1-4.659 0 2.34 2.34 0 0 0-3.32-1.915 2.34 2.34 0 0 1-2.33-4.033 2.34 2.34 0 0 0 0-3.831A2.34 2.34 0 0 1 6.35 6.051a2.34 2.34 0 0 0 3.319-1.915"/><circle cx="12" cy="12" r="3"/></symbol>
+<symbol id="i-chart-column" viewBox="0 0 24 24"><path d="M3 3v16a2 2 0 0 0 2 2h16"/><path d="M18 17V9"/><path d="M13 17V5"/><path d="M8 17v-3"/></symbol>
+<symbol id="i-clipboard-list" viewBox="0 0 24 24"><rect width="8" height="4" x="8" y="2" rx="1" ry="1"/><path d="M16 4h2a2 2 0 0 1 2 2v14a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2V6a2 2 0 0 1 2-2h2"/><path d="M12 11h4"/><path d="M12 16h4"/><path d="M8 11h.01"/><path d="M8 16h.01"/></symbol>
+<symbol id="i-history" viewBox="0 0 24 24"><path d="M3 12a9 9 0 1 0 9-9 9.75 9.75 0 0 0-6.74 2.74L3 8"/><path d="M3 3v5h5"/><path d="M12 7v5l4 2"/></symbol>
+<symbol id="i-user" viewBox="0 0 24 24"><path d="M19 21v-2a4 4 0 0 0-4-4H9a4 4 0 0 0-4 4v2"/><circle cx="12" cy="7" r="4"/></symbol>
+<symbol id="i-users" viewBox="0 0 24 24"><path d="M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2"/><path d="M16 3.128a4 4 0 0 1 0 7.744"/><path d="M22 21v-2a4 4 0 0 0-3-3.87"/><circle cx="9" cy="7" r="4"/></symbol>
+<symbol id="i-user-plus" viewBox="0 0 24 24"><path d="M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><line x1="19" x2="19" y1="8" y2="14"/><line x1="22" x2="16" y1="11" y2="11"/></symbol>
+<symbol id="i-user-x" viewBox="0 0 24 24"><path d="M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><line x1="17" x2="22" y1="8" y2="13"/><line x1="22" x2="17" y1="8" y2="13"/></symbol>
+<symbol id="i-user-check" viewBox="0 0 24 24"><path d="m16 11 2 2 4-4"/><path d="M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/></symbol>
+<symbol id="i-key-round" viewBox="0 0 24 24"><path d="M2.586 17.414A2 2 0 0 0 2 18.828V21a1 1 0 0 0 1 1h3a1 1 0 0 0 1-1v-1a1 1 0 0 1 1-1h1a1 1 0 0 0 1-1v-1a1 1 0 0 1 1-1h.172a2 2 0 0 0 1.414-.586l.814-.814a6.5 6.5 0 1 0-4-4z"/><circle cx="16.5" cy="7.5" r=".5" fill="currentColor"/></symbol>
+<symbol id="i-log-in" viewBox="0 0 24 24"><path d="m10 17 5-5-5-5"/><path d="M15 12H3"/><path d="M15 3h4a2 2 0 0 1 2 2v14a2 2 0 0 1-2 2h-4"/></symbol>
+<symbol id="i-log-out" viewBox="0 0 24 24"><path d="m16 17 5-5-5-5"/><path d="M21 12H9"/><path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4"/></symbol>
+<symbol id="i-mail" viewBox="0 0 24 24"><path d="m22 7-8.991 5.727a2 2 0 0 1-2.009 0L2 7"/><rect x="2" y="4" width="20" height="16" rx="2"/></symbol>
+<symbol id="i-dices" viewBox="0 0 24 24"><rect width="12" height="12" x="2" y="10" rx="2" ry="2"/><path d="m17.92 14 3.5-3.5a2.24 2.24 0 0 0 0-3l-5-4.92a2.24 2.24 0 0 0-3 0L10 6"/><path d="M6 18h.01"/><path d="M10 14h.01"/><path d="M15 6h.01"/><path d="M18 9h.01"/></symbol>
+<symbol id="i-upload" viewBox="0 0 24 24"><path d="M12 3v12"/><path d="m17 8-5-5-5 5"/><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/></symbol>
+<symbol id="i-download" viewBox="0 0 24 24"><path d="M12 15V3"/><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><path d="m7 10 5 5 5-5"/></symbol>
+<symbol id="i-file-spreadsheet" viewBox="0 0 24 24"><path d="M6 22a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h8a2.4 2.4 0 0 1 1.704.706l3.588 3.588A2.4 2.4 0 0 1 20 8v12a2 2 0 0 1-2 2z"/><path d="M14 2v5a1 1 0 0 0 1 1h5"/><path d="M8 13h2"/><path d="M14 13h2"/><path d="M8 17h2"/><path d="M14 17h2"/></symbol>
+<symbol id="i-archive" viewBox="0 0 24 24"><rect width="20" height="5" x="2" y="3" rx="1"/><path d="M4 8v11a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8"/><path d="M10 12h4"/></symbol>
+<symbol id="i-rotate-ccw" viewBox="0 0 24 24"><path d="M3 12a9 9 0 1 0 9-9 9.75 9.75 0 0 0-6.74 2.74L3 8"/><path d="M3 3v5h5"/></symbol>
+<symbol id="i-trash-2" viewBox="0 0 24 24"><path d="M10 11v6"/><path d="M14 11v6"/><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6"/><path d="M3 6h18"/><path d="M8 6V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"/></symbol>
+<symbol id="i-pencil" viewBox="0 0 24 24"><path d="M21.174 6.812a1 1 0 0 0-3.986-3.987L3.842 16.174a2 2 0 0 0-.5.83l-1.321 4.352a.5.5 0 0 0 .623.622l4.353-1.32a2 2 0 0 0 .83-.497z"/><path d="m15 5 4 4"/></symbol>
+<symbol id="i-eraser" viewBox="0 0 24 24"><path d="M21 21H8a2 2 0 0 1-1.42-.587l-3.994-3.999a2 2 0 0 1 0-2.828l10-10a2 2 0 0 1 2.829 0l5.999 6a2 2 0 0 1 0 2.828L12.834 21"/><path d="m5.082 11.09 8.828 8.828"/></symbol>
+<symbol id="i-calendar" viewBox="0 0 24 24"><path d="M8 2v3"/><path d="M16 2v3"/><rect x="3" y="3" width="18" height="18" rx="2"/><path d="M3 9h18"/></symbol>
+<symbol id="i-clock" viewBox="0 0 24 24"><circle cx="12" cy="12" r="10"/><path d="M12 6v6l4 2"/></symbol>
+<symbol id="i-lock" viewBox="0 0 24 24"><rect width="18" height="11" x="3" y="11" rx="2" ry="2"/><path d="M7 11V7a5 5 0 0 1 10 0v4"/></symbol>
+<symbol id="i-lock-open" viewBox="0 0 24 24"><rect width="18" height="11" x="3" y="11" rx="2" ry="2"/><path d="M7 11V7a5 5 0 0 1 9.9-1"/></symbol>
+<symbol id="i-save" viewBox="0 0 24 24"><path d="M15.2 3a2 2 0 0 1 1.4.6l3.8 3.8a2 2 0 0 1 .6 1.4V19a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2z"/><path d="M17 21v-7a1 1 0 0 0-1-1H8a1 1 0 0 0-1 1v7"/><path d="M7 3v4a1 1 0 0 0 1 1h7"/></symbol>
+<symbol id="i-undo-2" viewBox="0 0 24 24"><path d="M9 14 4 9l5-5"/><path d="M4 9h10.5a5.5 5.5 0 0 1 5.5 5.5a5.5 5.5 0 0 1-5.5 5.5H11"/></symbol>
+<symbol id="i-image" viewBox="0 0 24 24"><rect width="18" height="18" x="3" y="3" rx="2" ry="2"/><circle cx="9" cy="9" r="2"/><path d="m21 15-3.086-3.086a2 2 0 0 0-2.828 0L6 21"/></symbol>
+<symbol id="i-sticky-note" viewBox="0 0 24 24"><path d="M21 9a2.4 2.4 0 0 0-.706-1.706l-3.588-3.588A2.4 2.4 0 0 0 15 3H5a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2z"/><path d="M15 3v5a1 1 0 0 0 1 1h5"/></symbol>
+<symbol id="i-scan-line" viewBox="0 0 24 24"><path d="M3 7V5a2 2 0 0 1 2-2h2"/><path d="M17 3h2a2 2 0 0 1 2 2v2"/><path d="M21 17v2a2 2 0 0 1-2 2h-2"/><path d="M7 21H5a2 2 0 0 1-2-2v-2"/><path d="M7 12h10"/></symbol>
+<symbol id="i-scan-barcode" viewBox="0 0 24 24"><path d="M3 7V5a2 2 0 0 1 2-2h2"/><path d="M17 3h2a2 2 0 0 1 2 2v2"/><path d="M21 17v2a2 2 0 0 1-2 2h-2"/><path d="M7 21H5a2 2 0 0 1-2-2v-2"/><path d="M8 7v10"/><path d="M12 7v10"/><path d="M17 7v10"/></symbol>
+<symbol id="i-camera" viewBox="0 0 24 24"><path d="M13.997 4a2 2 0 0 1 1.76 1.05l.486.9A2 2 0 0 0 18.003 7H20a2 2 0 0 1 2 2v9a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V9a2 2 0 0 1 2-2h1.997a2 2 0 0 0 1.759-1.048l.489-.904A2 2 0 0 1 10.004 4z"/><circle cx="12" cy="13" r="3"/></symbol>
+<symbol id="i-keyboard" viewBox="0 0 24 24"><path d="M10 8h.01"/><path d="M12 12h.01"/><path d="M14 8h.01"/><path d="M16 12h.01"/><path d="M18 8h.01"/><path d="M6 8h.01"/><path d="M7 16h10"/><path d="M8 12h.01"/><rect width="20" height="16" x="2" y="4" rx="2"/></symbol>
+<symbol id="i-zap" viewBox="0 0 24 24"><path d="M15.914 4a1.5 1.5 0 00-2.474-1.561l-9 9A1.5 1.5 0 005.5 14h4.002a.5.5 0 01.471.666L8.086 20a1.5 1.5 0 002.475 1.56l9-9A1.5 1.5 0 0018.5 10h-3.997a.5.5 0 01-.472-.667z"/></symbol>
+</svg>
+<!-- ICONS:END -->
+
   <div class="app-container">
 
-    <div id="adminProcessOverlay" class="hidden">
-      <div class="admin-loader"></div>
-      <div id="adminLoadingText" class="admin-loading-text">SPRACOVÁVAM...</div>
+    <!-- УНІВЕРСАЛЬНЕ ВІКНО ОЧІКУВАННЯ: setAdminBusy() в app.js -->
+    <div id="adminProcessOverlay" class="hidden" role="status" aria-live="polite">
+      <div class="busy-card">
+        <div class="busy-ring"><div class="busy-box"><svg class="ic"><use href="#i-package"></use></svg></div></div>
+        <div id="adminLoadingText" class="admin-loading-text">Spracovávam…</div>
+        <div id="adminLoadingHint" class="admin-loading-hint"></div>
+      </div>
     </div>
+
+    <!-- Тонка смужка вгорі: сервер щось робить -->
+    <div id="netBar" class="hidden"></div>
 
     <!-- ПОВІДОМЛЕННЯ -->
     <div id="msgModal" class="hidden">
       <div class="sm-card popup-card">
-        <div class="sm-close" onclick="closeMsg()">✕</div>
+        <div class="sm-close" onclick="closeMsg()" title="Zavrieť"><svg class="ic"><use href="#i-x"></use></svg></div>
         <div class="sm-title" id="msgTitle">Správa</div>
-        <div id="msgText" style="margin-top:15px; font-size:14px; color:#374151; font-weight:600; line-height:1.5;"></div>
-        <button class="l-btn lb-go" onclick="closeMsg()" style="margin-top:20px;">OK</button>
+        <div id="msgText"></div>
+        <div class="modal-actions">
+          <button class="l-btn lb-go" onclick="closeMsg()">OK</button>
+        </div>
       </div>
     </div>
 
     <!-- ЗАПИТ ТЕКСТУ -->
     <div id="promptModal" class="hidden">
       <div class="sm-card popup-card">
-        <div class="sm-close" onclick="cancelPrompt()">✕</div>
+        <div class="sm-close" onclick="cancelPrompt()" title="Zavrieť"><svg class="ic"><use href="#i-x"></use></svg></div>
         <div class="sm-title" id="promptTitle">Otázka</div>
-        <div style="position:relative; margin-top:20px;">
-          <input type="text" id="promptInput" placeholder="">
-          <span id="promptEye" class="pass-eye hidden" onclick="togglePromptPass()">👁️</span>
+        <div class="prompt-field">
+          <input type="text" id="promptInput" placeholder="" autocomplete="off">
         </div>
-        <div style="display:flex; gap:10px; margin-top:20px;">
-          <button class="l-btn lb-go" onclick="submitPrompt()" style="flex:1;">OK</button>
-          <button class="l-btn lb-del" style="background:#f3f4f6; color:#374151; flex:1;" onclick="cancelPrompt()">ZRUŠIŤ</button>
+        <div class="modal-actions">
+          <button class="l-btn lb-secondary" onclick="cancelPrompt()">Zrušiť</button>
+          <button class="l-btn lb-go" onclick="submitPrompt()">OK</button>
         </div>
       </div>
     </div>
@@ -75,12 +151,12 @@
     <!-- ПІДТВЕРДЖЕННЯ -->
     <div id="confirmModal" class="hidden">
       <div class="sm-card popup-card">
-        <div class="sm-close" onclick="answerConfirm(false)">✕</div>
+        <div class="sm-close" onclick="answerConfirm(false)" title="Zavrieť"><svg class="ic"><use href="#i-x"></use></svg></div>
         <div class="sm-title" id="confirmTitle">Potvrdenie</div>
-        <div id="confirmText" style="margin-top:10px; font-size:14px; color:#6b7280; font-weight:600;">Naozaj?</div>
-        <div style="display:flex; gap:10px; margin-top:20px;">
-          <button id="confirmYesBtn" class="l-btn lb-go" onclick="answerConfirm(true)" style="flex:1;">ÁNO</button>
-          <button class="l-btn lb-del" style="background:#f3f4f6; color:#374151; flex:1;" onclick="answerConfirm(false)">NIE</button>
+        <div id="confirmText">Naozaj?</div>
+        <div class="modal-actions">
+          <button class="l-btn lb-secondary" onclick="answerConfirm(false)">Nie</button>
+          <button id="confirmYesBtn" class="l-btn lb-go" onclick="answerConfirm(true)">Áno</button>
         </div>
       </div>
     </div>
@@ -89,78 +165,111 @@
     <div id="setupOverlay" class="overlay-full">
       <div id="setupGrid" class="setup-grid single-mode">
 
-        <div class="setup-card">
+        <!--
+          ВХІД (v3.1.3–v3.1.4). ДВІ ОКРЕМІ ФОРМИ навмисно: у формі першого входу обидва
+          поля мають autocomplete="new-password" від самого початку — лише тоді Chrome
+          пропонує надійний пароль уже в ПЕРШОМУ полі (v3.1.3 перемикав атрибут на льоту,
+          і Chrome вважав перше поле «поточним паролем», а пропонував лише в другому).
+        -->
+        <div class="setup-card hidden" id="loginCard">
           <div>
-            <div class="su-logo">📦</div>
-            <div class="su-title">SKLADOVÝ TERMINÁL</div>
-            <div class="su-sub" id="suVersion">v3.0</div>
-            <div class="su-site" id="suSite">—</div>
-            <div class="su-form">
+            <div class="su-logo"><svg class="ic"><use href="#i-package"></use></svg></div>
+            <div class="su-title">Skladový terminál</div>
+            <div class="su-sub js-version">v3</div>
+            <div class="su-site js-site">—</div>
+
+            <form class="su-form" id="loginForm" onsubmit="doLogin(event)" autocomplete="on" novalidate>
+              <div class="login-mode-title">Prihlásenie</div>
               <div class="su-field">
-                <div class="su-lbl">Užívateľ:</div>
-                <div class="ctrl-row" id="userCtrlRow">
-                  <select id="setupUserSelect" class="custom-select"><option>⏳ Načítavam...</option></select>
-                  <button class="icon-btn-small add-btn" onclick="reqAddUser()" title="Pridať">+</button>
-                  <button class="icon-btn-small del-btn" onclick="reqDelUser()" title="Zmazať">🗑</button>
-                </div>
+                <label class="su-lbl" for="loginEmail">E-mail</label>
+                <input type="email" id="loginEmail" name="email" autocomplete="username" inputmode="email" autocapitalize="off" spellcheck="false" placeholder="meno@firma.sk">
               </div>
               <div class="su-field">
-                <div class="su-lbl">Pracovisko:</div>
+                <label class="su-lbl" for="loginPass">Heslo</label>
+                <input type="password" id="loginPass" name="password" autocomplete="current-password">
+              </div>
+              <div class="login-err hidden" id="loginErr"></div>
+              <button type="submit" class="l-btn lb-go" id="loginBtn"><svg class="ic"><use href="#i-log-in"></use></svg><span>Prihlásiť sa</span></button>
+            </form>
+
+            <form class="su-form hidden" id="regForm" onsubmit="doRegister(event)" autocomplete="on" novalidate>
+              <div class="login-mode-title">Prvé prihlásenie</div>
+              <div class="su-field">
+                <label class="su-lbl" for="regEmail">E-mail</label>
+                <input type="email" id="regEmail" name="email" autocomplete="username" inputmode="email" autocapitalize="off" spellcheck="false" placeholder="meno@firma.sk">
+              </div>
+              <div class="su-field">
+                <label class="su-lbl" for="regPass">Nové heslo (aspoň 6 znakov)</label>
+                <input type="password" id="regPass" name="new-password" autocomplete="new-password">
+              </div>
+              <div class="su-field">
+                <label class="su-lbl" for="regPass2">Zopakujte heslo</label>
+                <input type="password" id="regPass2" name="confirm-password" autocomplete="new-password">
+              </div>
+              <div class="login-err hidden" id="regErr"></div>
+              <button type="submit" class="l-btn lb-go" id="regBtn"><svg class="ic"><use href="#i-key-round"></use></svg><span>Vytvoriť heslo a prihlásiť sa</span></button>
+            </form>
+          </div>
+          <div class="login-alt">
+            <button type="button" class="lb-link" id="loginModeBtn" onclick="toggleLoginMode()">Prvé prihlásenie — vytvoriť si heslo</button>
+            <div class="login-hint" id="loginHint">Účet vám vytvorí správca. Heslo ste zabudli? Nové vám nastaví správca.</div>
+          </div>
+        </div>
+
+        <div class="setup-card hidden" id="setupCard">
+          <div>
+            <div class="su-logo"><svg class="ic"><use href="#i-package"></use></svg></div>
+            <div class="su-title">Skladový terminál</div>
+            <div class="su-sub js-version" id="suVersion">v3</div>
+            <div class="su-site js-site" id="suSite">—</div>
+            <div class="me-box">
+              <div class="me-av" id="meAvatar">?</div>
+              <div class="me-info">
+                <div class="me-name" id="meName">Načítavam…</div>
+                <div class="me-role" id="meRole"></div>
+              </div>
+              <div class="me-actions">
+                <button class="btn btn-secondary btn-xs" onclick="changeOwnPassword()" title="Zmeniť heslo"><svg class="ic"><use href="#i-key-round"></use></svg><span>Heslo</span></button>
+                <button class="btn btn-secondary btn-xs" onclick="doLogout()" title="Odhlásiť sa"><svg class="ic"><use href="#i-log-out"></use></svg><span>Odhlásiť</span></button>
+              </div>
+            </div>
+            <div class="su-form">
+              <div class="su-field">
+                <div class="su-lbl">Sklad</div>
                 <div class="ctrl-row">
-                  <select id="setupSheetSelect" class="custom-select"><option>⏳ Načítavam...</option></select>
-                  <button class="icon-btn-small ref-btn" onclick="refreshSheetList()" title="Obnoviť">🔄</button>
+                  <select id="setupSheetSelect" class="custom-select"><option value="">Načítavam…</option></select>
+                  <button class="icon-btn-small ref-btn" onclick="refreshSheetList()" title="Obnoviť zoznam"><svg class="ic"><use href="#i-refresh-cw"></use></svg></button>
                 </div>
               </div>
             </div>
           </div>
-          <div style="display:flex; flex-direction:column; gap:8px;">
-            <button class="l-btn lb-go" onclick="startApp()">SPUSTIŤ TERMINÁL 🚀</button>
-            <button class="admin-btn-show" onclick="showAdminPanel()">🔐 ADMIN ZÓNA</button>
+          <div class="su-actions">
+            <button class="l-btn lb-go" onclick="startApp()"><svg class="ic"><use href="#i-scan-barcode"></use></svg><span>Spustiť terminál</span></button>
+            <button class="l-btn admin-btn-show hidden" id="adminOpenBtn" onclick="showAdminPanel()"><svg class="ic"><use href="#i-shield"></use></svg><span>Administrácia</span></button>
           </div>
         </div>
 
+        <!-- АДМІНІСТРАЦІЯ (v3.1.4): список складів + загальні дії. sheets.js -->
         <div class="setup-card admin-card hidden" id="adminCard">
-          <div class="sm-close" onclick="closeAdminPanel()">✕</div>
-          <div>
-            <div class="admin-badge">🔐 Admin Centrum</div>
-            <div class="su-form">
-
-              <button class="ag-btn" onclick="reqCreateSheet()" style="width:100%; border:2px dashed #9ca3af;">
-                <span class="ag-icon">➕</span><span>NOVÝ SKLAD</span>
-              </button>
-
-              <div class="su-field">
-                <div class="su-lbl" style="color:#b91c1c; text-align:center;">VYBERTE SKLAD:</div>
-                <select id="importSheetSelect" class="custom-select" onchange="updateAdminState()">
-                  <option>⏳ Načítavam...</option>
-                </select>
-              </div>
-
-              <div id="adminDependent" class="ag-disabled">
-                <div class="admin-grid">
-                  <button class="ag-btn" onclick="openUniversalList('admin')">
-                    <span class="ag-icon">✏️</span><span>EDITOR TOVARU</span>
-                  </button>
-                  <button class="ag-btn ag-red-imp" onclick="openImport()">
-                    <span class="ag-icon">📥</span><span>IMPORT PDF / XLSX</span>
-                  </button>
-                  <button class="ag-btn" onclick="exportSheet()">
-                    <span class="ag-icon">📤</span><span>STIAHNUŤ XLSX</span>
-                  </button>
-                  <button class="ag-btn" onclick="reqDeleteSheet()" style="background:#fee2e2; border-color:#fecaca; color:#b91c1c;">
-                    <span class="ag-icon">🗑</span><span>ZMAZAŤ SKLAD</span>
-                  </button>
-                </div>
-              </div>
-
-              <div style="height:1px; background:#e5e7eb; margin:6px 0;"></div>
-
-              <div style="display:grid; grid-template-columns:1fr 1fr; gap:10px;">
-                <button class="ag-btn" onclick="openBackups()" style="padding:10px;">
-                  <span class="ag-icon">⌚</span><span>ZÁLOHY</span>
-                </button>
-                <button class="l-btn lb-del" style="background:#f3f4f6; color:#374151; font-size:11px;" onclick="reqClearLogs()">📜 ČISTIŤ LOGY</button>
-              </div>
+          <div class="sm-close" onclick="closeAdminPanel(true)" title="Zavrieť"><svg class="ic"><use href="#i-x"></use></svg></div>
+          <div class="adm-body">
+            <div class="admin-badge"><svg class="ic"><use href="#i-shield"></use></svg><span>Administrácia</span></div>
+            <div class="adm-head">
+              <div class="su-lbl">Sklady <span class="adm-count" id="shCount"></span></div>
+              <button class="btn btn-secondary btn-xs" onclick="reqCreateSheet()"><svg class="ic"><use href="#i-plus"></use></svg><span>Nový sklad</span></button>
+            </div>
+            <div class="search-box hidden" id="shSearchBox">
+              <svg class="ic"><use href="#i-search"></use></svg>
+              <input type="text" id="shSearch" class="uni-search" placeholder="Hľadať sklad…" oninput="Sheets.render()">
+            </div>
+            <div class="sh-list" id="shList"></div>
+            <button type="button" class="lb-link sh-arch-toggle hidden" id="shArchToggle" onclick="Sheets.toggleArchived()"></button>
+          </div>
+          <div class="adm-foot">
+            <div class="admin-grid">
+              <button class="ag-btn" onclick="openBackups()"><svg class="ic"><use href="#i-archive"></use></svg><span>Zálohy</span></button>
+              <button class="ag-btn" onclick="openAdminLogs()"><svg class="ic"><use href="#i-history"></use></svg><span>História všetkých skladov</span></button>
+              <button class="ag-btn ag-wide ag-people" onclick="People.open()"><svg class="ic"><use href="#i-users"></use></svg><span>Ľudia a prístupy</span></button>
             </div>
           </div>
         </div>
@@ -168,95 +277,248 @@
       </div>
     </div>
 
-    <!-- СПИСОК ТОВАРІВ -->
-    <div id="universalListModal" class="hidden">
+    <!-- СКЛАД: деталі і дії (v3.1.4) — sheets.js -->
+    <div id="sheetModal" class="hidden">
+      <div class="sm-card popup-card sheet-card">
+        <div class="sm-close" onclick="Sheets.closeDetail()" title="Zavrieť"><svg class="ic"><use href="#i-x"></use></svg></div>
+        <div class="sd-head">
+          <div class="sd-icon"><svg class="ic"><use href="#i-warehouse"></use></svg></div>
+          <div class="sd-titles">
+            <div class="sm-title" id="sdName">—</div>
+            <div class="sd-sub" id="sdCreated">—</div>
+          </div>
+        </div>
+        <div class="su-field">
+          <div class="su-lbl">Stav</div>
+          <div class="seg seg-status" id="sdStatus">
+            <button type="button" data-s="prep" onclick="Sheets.setStatus('prep')">Príprava</button>
+            <button type="button" data-s="active" onclick="Sheets.setStatus('active')">Prebieha</button>
+            <button type="button" data-s="done" onclick="Sheets.setStatus('done')">Dokončený</button>
+            <button type="button" data-s="archived" onclick="Sheets.setStatus('archived')">Archív</button>
+          </div>
+          <div class="pp-hint" id="sdStatusNote"></div>
+        </div>
+        <div class="sd-stats">
+          <div class="sd-stat"><div class="ps-lbl">Položky</div><div class="sd-val" id="sdItems">0</div></div>
+          <div class="sd-stat"><div class="ps-lbl">Sedí</div><div class="sd-val" id="sdDone">0</div></div>
+          <div class="sd-stat"><div class="ps-lbl">Plán</div><div class="sd-val" id="sdPlan">0</div></div>
+          <div class="sd-stat"><div class="ps-lbl">Realita</div><div class="sd-val" id="sdReal">0</div></div>
+        </div>
+        <div class="sd-progress">
+          <div class="prog-w"><div class="prog-f" id="sdBar"></div></div>
+          <span id="sdPct">0 %</span>
+        </div>
+        <div class="sd-last" id="sdLast"></div>
+        <div class="admin-grid sd-actions">
+          <button class="ag-btn ag-primary" onclick="Sheets.act('items')"><svg class="ic"><use href="#i-clipboard-list"></use></svg><span>Tovar na sklade</span></button>
+          <button class="ag-btn" onclick="Sheets.act('logs')"><svg class="ic"><use href="#i-history"></use></svg><span>História skladu</span></button>
+          <button class="ag-btn" onclick="Sheets.act('import')"><svg class="ic"><use href="#i-upload"></use></svg><span>Import zo súboru</span></button>
+          <button class="ag-btn" onclick="Sheets.act('export')"><svg class="ic"><use href="#i-download"></use></svg><span>Export do XLSX</span></button>
+          <button class="ag-btn" onclick="Sheets.act('rename')"><svg class="ic"><use href="#i-pencil"></use></svg><span>Premenovať</span></button>
+          <button class="ag-btn ag-danger" onclick="Sheets.act('delete')"><svg class="ic"><use href="#i-trash-2"></use></svg><span>Zmazať sklad</span></button>
+        </div>
+        <button class="l-btn lb-go" onclick="Sheets.act('terminal')"><svg class="ic"><use href="#i-scan-barcode"></use></svg><span>Spustiť terminál v tomto sklade</span></button>
+      </div>
+    </div>
+
+    <!-- ТАБЛИЦЯ СКЛАДУ (v3.1.2) — одна для перегляду і правки, editor.js -->
+    <div id="editorModal" class="hidden">
       <div class="sm-card modal-fullscreen">
-        <div class="sm-close" onclick="closeUniversalList()">✕</div>
+        <div class="sm-close" onclick="Editor.close()" title="Zavrieť"><svg class="ic"><use href="#i-x"></use></svg></div>
         <div class="modal-header">
           <div class="modal-title-row">
-            <span class="mt-main" id="uniModalTitle">📦 ZOZNAM</span>
-            <span class="mt-sub" id="uniSheetName">--</span>
+            <span class="mt-main"><svg class="ic"><use href="#i-clipboard-list"></use></svg>Tovar na sklade</span>
+            <span class="mt-sub" id="edSheetName">—</span>
+            <span class="ed-dirty hidden" id="edDirty">0 zmien</span>
           </div>
-          <div class="uni-toolbar">
-            <input type="text" id="uniSearchInput" class="uni-search" placeholder="🔍 Hľadať..." oninput="renderUniversalList()">
-
-            <div style="min-width:140px; flex:1;">
-              <select id="uniSortSelect" class="custom-select" onchange="renderUniversalList()">
-                <option value="miss_prio">⚡ Priorita</option>
-                <option value="name_asc">🔤 A-Z</option>
-                <option value="name_desc">🔤 Z-A</option>
-                <option value="qty_desc">📊 Max množstvo</option>
-                <option value="qty_asc">📊 Min množstvo</option>
-                <option value="plan_desc">📈 Max Plán</option>
-                <option value="plan_asc">📈 Min Plán</option>
-              </select>
+          <div class="ed-toolbar">
+            <div class="search-box">
+              <svg class="ic"><use href="#i-search"></use></svg>
+              <input type="text" id="edSearch" class="uni-search" placeholder="Hľadať PLU, EAN, SKU, názov…" oninput="Editor.onSearch(this.value)">
             </div>
-
-            <div class="uni-filter-wrapper">
-              <button class="uni-filter-btn" onclick="toggleFilterPopover(event)">
-                <span id="uniFilterLabel">Všetko</span><span>▼</span>
-              </button>
-              <div class="uni-filter-popover">
-                <label class="uf-row"><input type="checkbox" id="chkUniAll" checked onchange="toggleUniFilter('all')"> ✅ Všetko</label>
-                <label class="uf-row"><input type="checkbox" id="chkUniMiss" onchange="toggleUniFilter('miss')"> ⚠️ Chýbajúce</label>
-                <label class="uf-row"><input type="checkbox" id="chkUniExtra" onchange="toggleUniFilter('extra')"> 🔼 Naviac</label>
-                <label class="uf-row"><input type="checkbox" id="chkUniDone" onchange="toggleUniFilter('done')"> 🟢 Hotové</label>
-                <label class="uf-row"><input type="checkbox" id="chkUniNote" onchange="toggleUniFilter('note')"> 📝 S poznámkou</label>
-              </div>
+            <div class="ed-chips" id="edChips">
+              <button class="chip active" data-f="all" onclick="Editor.setChip('all')">Všetko</button>
+              <button class="chip" data-f="miss" onclick="Editor.setChip('miss')">Chýba</button>
+              <button class="chip" data-f="extra" onclick="Editor.setChip('extra')">Naviac</button>
+              <button class="chip" data-f="done" onclick="Editor.setChip('done')">Sedí</button>
+              <button class="chip" data-f="note" onclick="Editor.setChip('note')">S poznámkou</button>
+              <button class="chip ed-only-edit" data-f="changed" onclick="Editor.setChip('changed')">Neuložené</button>
             </div>
+          </div>
 
-            <div class="uni-btn-group">
-              <button id="ubScan" class="uni-btn ub-scan" onclick="uniAction('scan', event)" disabled title="Skenovať">📷</button>
-              <button id="ubEdit" class="uni-btn ub-edit" onclick="uniAction('edit', event)" disabled title="Upraviť">✏️</button>
-              <button id="ubNote" class="uni-btn ub-note" onclick="uniAction('note', event)" disabled title="Poznámka">📝</button>
-              <button id="ubImg"  class="uni-btn ub-img"  onclick="uniAction('img', event)"  disabled title="Obrázok">🖼️</button>
-              <button id="ubAdd"  class="uni-btn ub-add"  onclick="uniAction('add', event)" title="Pridať">➕</button>
+          <!-- режим перегляду: дії з вибраним рядком + замок -->
+          <div class="ed-toolbar" id="edReadActions">
+            <span class="ed-sel" id="edSelInfo">Kliknite na riadok</span>
+            <div class="ed-actions">
+              <button class="btn btn-primary" id="edBtnScan" onclick="Editor.scanSelected()" disabled title="Započítať ako sken (+1)"><svg class="ic"><use href="#i-scan-line"></use></svg><span>Skenovať</span></button>
+              <button class="btn btn-secondary" id="edBtnPhoto" onclick="Editor.photoSelected()" disabled title="Hľadať fotku na Google"><svg class="ic"><use href="#i-image"></use></svg><span>Foto</span></button>
+              <button class="btn btn-secondary" id="edBtnNote" onclick="Editor.noteSelected()" disabled><svg class="ic"><use href="#i-sticky-note"></use></svg><span>Poznámka</span></button>
+              <button class="btn btn-secondary ed-admin-only" onclick="Editor.exportXlsx()"><svg class="ic"><use href="#i-download"></use></svg><span>Export</span></button>
+              <button class="btn btn-lock ed-admin-only" onclick="Editor.unlock()" title="Odomknúť úpravy (len správca a vlastník)"><svg class="ic"><use href="#i-lock"></use></svg><span>Upraviť</span></button>
+            </div>
+          </div>
+
+          <!-- режим правки -->
+          <div class="ed-toolbar hidden" id="edEditActions">
+            <div class="ed-actions">
+              <button class="btn btn-secondary" onclick="Editor.addRow()"><svg class="ic"><use href="#i-plus"></use></svg><span>Nový riadok</span></button>
+              <button class="btn btn-secondary" onclick="Editor.toggleDelete()"><svg class="ic"><use href="#i-trash-2"></use></svg><span>Zmazať / vrátiť</span></button>
+              <button class="btn btn-secondary" onclick="Editor.undo()"><svg class="ic"><use href="#i-undo-2"></use></svg><span>Späť</span></button>
+              <button class="btn btn-secondary" onclick="Editor.exportXlsx()"><svg class="ic"><use href="#i-download"></use></svg><span>Export</span></button>
+              <button class="btn btn-primary" id="edSaveBtn" onclick="Editor.save()" disabled><svg class="ic"><use href="#i-save"></use></svg><span>Uložiť zmeny</span></button>
+              <button class="btn btn-lock is-open" onclick="Editor.lock()" title="Zamknúť úpravy"><svg class="ic"><use href="#i-lock-open"></use></svg><span>Zamknúť</span></button>
             </div>
           </div>
         </div>
-        <div class="full-log-list" id="uniListContainer"></div>
+        <div class="ed-editbar hidden" id="edEditBar"><svg class="ic"><use href="#i-pencil"></use></svg><span>Režim úprav — zmeny sa uložia až po kliknutí na „Uložiť zmeny“.</span></div>
+        <div id="edTable" class="ed-table"></div>
+        <div class="ed-footer">
+          <span id="edInfo"></span>
+          <span class="ed-hint" id="edHint"></span>
+        </div>
       </div>
     </div>
 
-    <!-- РЕДАКТОР ПОЗИЦІЇ -->
-    <div id="editorEditModal" class="hidden">
-      <div class="sm-card popup-card">
-        <div class="sm-close" onclick="closeEditItemModal()">✕</div>
-        <div class="sm-title" id="eimTitle">UPRAVIŤ TOVAR</div>
-        <div class="su-form" style="margin-top:20px;">
-          <input type="hidden" id="editRowId">
-          <div class="ed-row-main">
-            <div class="ed-label">Názov tovaru</div>
-            <input type="text" id="editName" class="ed-field">
+    <!-- ЖУРНАЛ ЗМІН (v3.1.2) — LogView в editor.js -->
+    <div id="logsModal" class="hidden">
+      <div class="sm-card modal-fullscreen">
+        <div class="sm-close" onclick="LogView.close()" title="Zavrieť"><svg class="ic"><use href="#i-x"></use></svg></div>
+        <div class="modal-header">
+          <div class="modal-title-row">
+            <span class="mt-main"><svg class="ic"><use href="#i-history"></use></svg>História zmien</span>
+            <span class="mt-sub" id="lgSheetName">—</span>
           </div>
-          <div class="ed-cols-2">
-            <div class="ed-row-main"><div class="ed-label">PLU</div><input type="text" id="editPlu" class="ed-field"></div>
-            <div class="ed-row-main"><div class="ed-label">SKU (kód)</div><input type="text" id="editCode" class="ed-field"></div>
+          <div class="ed-toolbar">
+            <div class="search-box">
+              <svg class="ic"><use href="#i-search"></use></svg>
+              <input type="text" id="lgSearch" class="uni-search" placeholder="Hľadať PLU, EAN, názov, pracovníka…" oninput="LogView.onSearch(this.value)">
+            </div>
+            <div class="ed-chips" id="lgChips">
+              <button class="chip active" data-f="all" onclick="LogView.setChip('all')">Všetko</button>
+              <button class="chip" data-f="scan" onclick="LogView.setChip('scan')">Skeny</button>
+              <button class="chip" data-f="manual" onclick="LogView.setChip('manual')">Ručne</button>
+              <button class="chip" data-f="edit" onclick="LogView.setChip('edit')">Úpravy</button>
+              <button class="chip" data-f="note" onclick="LogView.setChip('note')">Poznámky</button>
+              <button class="chip" data-f="system" onclick="LogView.setChip('system')">Import a systém</button>
+            </div>
           </div>
-          <div class="ed-row-main">
-            <div class="ed-label">EAN</div>
-            <input type="text" id="editEan" class="ed-field">
-          </div>
-          <div class="ed-cols-2">
-            <div class="ed-row-main"><div class="ed-label">Plán</div><input type="number" id="editPlan" class="ed-field" style="text-align:center;"></div>
-            <div class="ed-row-main"><div class="ed-label" style="color:#2563eb;">Realita</div><input type="number" id="editReal" class="ed-field" style="text-align:center; color:#2563eb; border-color:#bfdbfe;"></div>
-          </div>
-          <div style="display:flex; gap:10px;">
-            <button class="l-btn lb-go" id="btnSaveItem" onclick="saveEditItem()" style="flex:2;">💾 ULOŽIŤ</button>
-            <button id="btnDelItem" class="l-btn lb-del" onclick="deleteEditItem()" style="flex:1;">🗑</button>
+          <div class="ed-toolbar">
+            <div class="ed-actions">
+              <button class="btn btn-secondary" onclick="LogView.reload()"><svg class="ic"><use href="#i-refresh-cw"></use></svg><span>Obnoviť</span></button>
+              <button class="btn btn-secondary" onclick="LogView.exportXlsx()"><svg class="ic"><use href="#i-download"></use></svg><span>Export</span></button>
+              <button class="btn btn-danger-soft hidden" id="lgClearBtn" onclick="reqClearLogs()"><svg class="ic"><use href="#i-eraser"></use></svg><span>Vymazať históriu</span></button>
+            </div>
           </div>
         </div>
+        <div id="lgTable" class="ed-table"></div>
+        <div class="ed-footer">
+          <span id="lgInfo"></span>
+          <span class="ed-hint">Ctrl+C = kopírovať označené bunky</span>
+        </div>
       </div>
+    </div>
+
+    <!-- ЛЮДИ І ДОСТУПИ (v3.1.3) — people.js -->
+    <div id="peopleModal" class="hidden">
+      <div class="sm-card modal-fullscreen">
+        <div class="sm-close" onclick="People.close()" title="Zavrieť"><svg class="ic"><use href="#i-x"></use></svg></div>
+        <div class="modal-header">
+          <div class="modal-title-row">
+            <span class="mt-main"><svg class="ic"><use href="#i-users"></use></svg>Ľudia a prístupy</span>
+            <span class="mt-sub" id="ppCount">—</span>
+          </div>
+          <div class="ed-toolbar">
+            <div class="search-box">
+              <svg class="ic"><use href="#i-search"></use></svg>
+              <input type="text" id="ppSearch" class="uni-search" placeholder="Hľadať meno alebo e-mail…" oninput="People.render()">
+            </div>
+            <div class="ed-actions">
+              <button class="btn btn-primary" onclick="People.openAdd()"><svg class="ic"><use href="#i-user-plus"></use></svg><span>Pridať človeka</span></button>
+              <button class="btn btn-secondary" onclick="People.load()"><svg class="ic"><use href="#i-refresh-cw"></use></svg><span>Obnoviť</span></button>
+            </div>
+          </div>
+        </div>
+        <div class="full-log-list pp-body">
+          <div id="ppList"></div>
+          <div class="pp-legend" id="ppLegend"></div>
+        </div>
+      </div>
+    </div>
+
+    <!-- НОВА ЛЮДИНА (v3.1.3) -->
+    <div id="personModal" class="hidden">
+      <div class="sm-card popup-card">
+        <div class="sm-close" onclick="People.closeAdd()" title="Zavrieť"><svg class="ic"><use href="#i-x"></use></svg></div>
+        <div class="sm-title">Pridať človeka</div>
+        <div class="sm-sub">Prihlasovať sa bude e-mailom a heslom.</div>
+        <div class="su-form">
+          <div class="su-field">
+            <label class="su-lbl" for="npName">Meno a priezvisko</label>
+            <input type="text" id="npName" autocomplete="off" placeholder="Napr. Peter Novák">
+          </div>
+          <div class="su-field">
+            <label class="su-lbl" for="npEmail">E-mail (prihlasovacie meno)</label>
+            <input type="email" id="npEmail" autocomplete="off" inputmode="email" autocapitalize="off" spellcheck="false" placeholder="meno@firma.sk">
+          </div>
+          <div class="su-field">
+            <div class="su-lbl">Rola</div>
+            <div class="seg" id="npRole">
+              <button type="button" data-r="member" class="active" onclick="People.pickRole('member')">Pracovník</button>
+              <button type="button" data-r="admin" onclick="People.pickRole('admin')">Správca</button>
+              <button type="button" data-r="owner" onclick="People.pickRole('owner')">Vlastník</button>
+            </div>
+            <div class="pp-hint" id="npRoleNote"></div>
+          </div>
+          <div class="su-field">
+            <label class="su-lbl" for="npPass">Heslo (aspoň 6 znakov)</label>
+            <div class="ctrl-row">
+              <input type="text" id="npPass" autocomplete="off" autocapitalize="off" spellcheck="false" placeholder="nechajte prázdne = vytvorí si sám">
+              <button type="button" class="icon-btn-small" onclick="People.genPass()" title="Vymyslieť nové heslo"><svg class="ic"><use href="#i-dices"></use></svg></button>
+            </div>
+            <div class="pp-hint">Heslo je vymyslené automaticky — povedzte ho človeku, prihlási sa hneď. Ak pole vymažete, človek si heslo vytvorí sám cez „Prvé prihlásenie“.</div>
+          </div>
+        </div>
+        <div class="modal-actions">
+          <button class="l-btn lb-secondary" onclick="People.closeAdd()">Zrušiť</button>
+          <button class="l-btn lb-go" id="npSaveBtn" onclick="People.saveAdd()">Pridať</button>
+        </div>
+      </div>
+    </div>
+
+    <!-- ЗМІНА СВОГО ПАРОЛЯ (v3.1.4) — окрема форма, щоб менеджер паролів її розумів -->
+    <div id="pwModal" class="hidden">
+      <form class="sm-card popup-card" id="pwForm" onsubmit="savePw(event)" autocomplete="on" novalidate>
+        <div class="sm-close" onclick="closePw()" title="Zavrieť"><svg class="ic"><use href="#i-x"></use></svg></div>
+        <div class="sm-title">Zmeniť heslo</div>
+        <div class="sm-sub" id="pwWho">—</div>
+        <!-- прихований логін: так Chrome знає, для якого акаунта оновити збережений пароль -->
+        <input type="email" id="pwUser" name="email" autocomplete="username" class="visually-hidden" tabindex="-1" aria-hidden="true" readonly>
+        <div class="su-form">
+          <div class="su-field">
+            <label class="su-lbl" for="pwNew">Nové heslo (aspoň 6 znakov)</label>
+            <input type="password" id="pwNew" name="new-password" autocomplete="new-password">
+          </div>
+          <div class="su-field">
+            <label class="su-lbl" for="pwNew2">Zopakujte heslo</label>
+            <input type="password" id="pwNew2" name="confirm-password" autocomplete="new-password">
+          </div>
+          <div class="login-err hidden" id="pwErr"></div>
+        </div>
+        <div class="modal-actions">
+          <button type="button" class="l-btn lb-secondary" onclick="closePw()">Zrušiť</button>
+          <button type="submit" class="l-btn lb-go" id="pwSaveBtn">Uložiť heslo</button>
+        </div>
+      </form>
     </div>
 
     <!-- ІМПОРТ PDF / XLSX -->
     <div id="importModal" class="hidden">
       <div class="sm-card modal-fullscreen">
-        <div class="sm-close" onclick="closeImport()">✕</div>
+        <div class="sm-close" onclick="closeImport()" title="Zavrieť"><svg class="ic"><use href="#i-x"></use></svg></div>
         <div class="modal-header">
           <div class="modal-title-row">
-            <span class="mt-main">📥 IMPORT TOVARU</span>
-            <span class="mt-sub" id="impTargetName">--</span>
+            <span class="mt-main"><svg class="ic"><use href="#i-upload"></use></svg>Import tovaru</span>
+            <span class="mt-sub" id="impTargetName">—</span>
           </div>
         </div>
 
@@ -265,8 +527,8 @@
             <div class="imp-step-title">Krok 1 — Súbor</div>
             <input type="file" id="impFileInput" accept=".xlsx,.xls,.csv,.pdf" style="display:none;" onchange="Importer.onFilePicked(this)">
             <div class="imp-drop" id="impDrop" onclick="document.getElementById('impFileInput').click()">
-              <div class="imp-drop-icon">📄</div>
-              <div class="imp-drop-text">Vyberte súbor alebo pretiahnite sem</div>
+              <div class="imp-drop-icon"><svg class="ic"><use href="#i-file-spreadsheet"></use></svg></div>
+              <div class="imp-drop-text">Vyberte súbor alebo ho sem pretiahnite</div>
               <div class="imp-drop-hint">Excel (.xlsx, .csv) alebo PDF vygenerované systémom</div>
             </div>
             <div id="impFileInfo" class="imp-summary hidden"></div>
@@ -274,7 +536,7 @@
 
           <div class="imp-step hidden" id="impStepMap">
             <div class="imp-step-title">Krok 2 — Priradenie stĺpcov</div>
-            <div style="font-size:12px; color:#6b7280; font-weight:600;">
+            <div class="imp-note" style="text-align:left;">
               Skontrolujte, či sú stĺpce priradené správne. Nastavenie sa uloží a pri ďalšom
               importe rovnakého dokumentu sa použije automaticky.
             </div>
@@ -287,35 +549,36 @@
           <div class="imp-step hidden" id="impStepGo">
             <div class="imp-step-title">Krok 3 — Spustenie</div>
             <div id="impSummary" class="imp-summary"></div>
-            <label class="uf-row" style="background:#f9fafb; border:1px solid #e5e7eb;">
+            <label class="uf-row imp-keep">
               <input type="checkbox" id="impKeepReal">
-              Zachovať už naskenované množstvá (Realita)
+              Zachovať naskenované množstvá, poznámky a položky, ktoré v súbore nie sú
             </label>
-            <button class="l-btn lb-imp" onclick="Importer.run()">📥 IMPORTOVAŤ DO SKLADU</button>
-            <div style="font-size:11px; color:#9ca3af; font-weight:600; text-align:center;">
-              Pred importom sa automaticky vytvorí skrytá záloha aktuálneho skladu.
-            </div>
+            <button class="l-btn lb-go" onclick="Importer.run()"><svg class="ic"><use href="#i-upload"></use></svg><span>Importovať do skladu</span></button>
+            <div class="imp-note">Pred importom sa automaticky vytvorí záloha aktuálneho skladu.</div>
           </div>
         </div>
       </div>
     </div>
 
-    <!-- БЕКАПИ -->
+    <!-- ЗАЛОГИ -->
     <div id="backupModal" class="hidden">
       <div class="sm-card modal-fullscreen">
-        <div class="sm-close" onclick="closeBackups()">✕</div>
+        <div class="sm-close" onclick="closeBackups()" title="Zavrieť"><svg class="ic"><use href="#i-x"></use></svg></div>
         <div class="modal-header">
           <div class="modal-title-row">
-            <span class="mt-main">⌚ ZÁLOHY</span>
-            <span class="mt-sub">Automatické zálohy pred zmenami</span>
+            <span class="mt-main"><svg class="ic"><use href="#i-archive"></use></svg>Zálohy</span>
+            <span class="mt-sub">Automaticky pred importom, obnovou a zmazaním</span>
           </div>
           <div class="modal-toolbar-row">
-            <input type="text" id="backupSearchInput" class="uni-search" placeholder="🔍 Hľadať zálohu..." oninput="filterBackups()">
-            <div style="min-width:150px;">
+            <div class="search-box">
+              <svg class="ic"><use href="#i-search"></use></svg>
+              <input type="text" id="backupSearchInput" class="uni-search" placeholder="Hľadať zálohu…" oninput="filterBackups()">
+            </div>
+            <div style="min-width:160px;">
               <select id="backupSortSelect" class="custom-select" onchange="filterBackups()">
-                <option value="date_desc">📅 Najnovšie</option>
-                <option value="date_asc">📅 Najstaršie</option>
-                <option value="name_asc">🔤 Názov A-Z</option>
+                <option value="date_desc">Najnovšie</option>
+                <option value="date_asc">Najstaršie</option>
+                <option value="name_asc">Názov A–Z</option>
               </select>
             </div>
           </div>
@@ -324,22 +587,20 @@
       </div>
     </div>
 
-    <!-- СТАТИСТИКА -->
+    <!-- ПРЕХЛЯД -->
     <div id="statsModal" class="hidden">
       <div class="sm-card popup-card">
-        <div class="sm-close" onclick="closeStats()">✕</div>
-        <div class="sm-title">📊 ŠTATISTIKA SKLADU</div>
-        <div id="statsSheetName" class="sm-sheet-label">--</div>
+        <div class="sm-close" onclick="closeStats()" title="Zavrieť"><svg class="ic"><use href="#i-x"></use></svg></div>
+        <div class="sm-title">Prehľad skladu</div>
+        <div id="statsSheetName" class="sm-sheet-label">—</div>
         <div class="stats-card">
           <div class="prog-w"><div id="progBar" class="prog-f"></div></div>
           <div class="gs-tab">
-            <div class="gs-row"><span>Plán:</span><span id="qPlan">0</span></div>
-            <div class="gs-row"><span>Real:</span><span class="c-green" id="qReal">0</span></div>
-            <div class="gs-row"><span class="c-red">Chýba:</span><span class="c-red" id="qMiss">0</span></div>
-            <div class="gs-row"><span class="c-orange">Naviac:</span><span class="c-orange" id="qExtra">0</span></div>
-            <div class="gs-row" style="grid-column:1 / -1; justify-content:center; gap:8px;">
-              Hotové položky: <span id="qFinished" style="color:#2563eb;">0 / 0</span>
-            </div>
+            <div class="gs-row"><span>Plán</span><span id="qPlan">0</span></div>
+            <div class="gs-row"><span>Realita</span><span class="c-green" id="qReal">0</span></div>
+            <div class="gs-row"><span>Chýba</span><span class="c-red" id="qMiss">0</span></div>
+            <div class="gs-row"><span>Naviac</span><span class="c-orange" id="qExtra">0</span></div>
+            <div class="gs-row" style="grid-column:1 / -1;"><span>Hotové položky</span><span id="qFinished">0 / 0</span></div>
           </div>
         </div>
       </div>
@@ -348,16 +609,16 @@
     <!-- НАЛАШТУВАННЯ -->
     <div id="localSettingsModal" class="hidden">
       <div class="sm-card popup-card">
-        <div class="sm-close" onclick="closeLocalSettings()">✕</div>
-        <div class="sm-title">⚙️ NASTAVENIA</div>
+        <div class="sm-close" onclick="closeLocalSettings()" title="Zavrieť"><svg class="ic"><use href="#i-x"></use></svg></div>
+        <div class="sm-title">Nastavenia</div>
         <div class="sm-sub">Platí len pre toto zariadenie</div>
         <div class="su-form">
           <div class="toggle-row">
-            <div class="toggle-lbl">Povoliť Zoom efekt</div>
+            <div class="toggle-lbl">Veľký náhľad po naskenovaní</div>
             <input type="checkbox" id="zoomToggleCheck" checked>
           </div>
           <div class="su-field">
-            <div class="su-lbl" style="text-align:center;">Dĺžka trvania:</div>
+            <div class="su-lbl" style="text-align:center;">Dĺžka náhľadu</div>
             <div id="rangeVal">1.0 s</div>
             <input type="range" id="localZoomRange" min="0.5" max="5.0" step="0.1" value="1.0" oninput="updateRangeLabel(this.value)">
           </div>
@@ -365,44 +626,30 @@
             <div class="toggle-lbl">Zvuky</div>
             <input type="checkbox" id="soundToggleCheck" checked>
           </div>
-          <button class="l-btn lb-go" onclick="saveLocalSettings()">💾 ULOŽIŤ</button>
+          <button class="l-btn lb-go" onclick="saveLocalSettings()">Uložiť</button>
         </div>
       </div>
     </div>
 
-    <!-- ІСТОРІЯ -->
-    <div id="logModal" class="hidden">
-      <div class="sm-card modal-fullscreen">
-        <div class="sm-close" onclick="closeLog()">✕</div>
-        <div class="modal-header">
-          <div class="modal-title-row">
-            <span class="mt-main">📜 HISTÓRIA</span>
-            <span class="mt-sub" id="logSheetName">Sklad</span>
-          </div>
-        </div>
-        <div class="full-log-list" id="fullLogList"></div>
-      </div>
-    </div>
-
-    <!-- СПАЛАХ -->
+    <!-- СПАЛАХ ПІСЛЯ СКАНУ -->
     <div id="flashOverlay" class="hidden f-blue" onclick="hideFlash()">
       <div class="f-label">PLU</div>
       <div id="flashCode" class="f-val">0000</div>
       <div id="flashSkuGroup" class="f-sub-group">
-        <span>SKU: <span id="flashSku">--</span></span>
-        <span>EAN: <span id="flashEan">--</span></span>
+        <span>SKU: <span id="flashSku">—</span></span>
+        <span>EAN: <span id="flashEan">—</span></span>
       </div>
-      <div id="flashName" class="f-text">...</div>
+      <div id="flashName" class="f-text">…</div>
     </div>
 
     <!-- КАМЕРА -->
     <div id="camera-fullscreen">
       <div id="reader"></div>
       <div class="cam-ui">
-        <div id="camSelectWrapper"><select id="camSelect" onchange="changeCamera()"></select></div>
+        <div id="camSelectWrapper"><select id="camSelect" class="custom-select cs-dark cs-up" onchange="changeCamera()"></select></div>
         <div class="cam-controls">
-          <button id="camFlash" class="cam-btn hidden" onclick="toggleFlash()">⚡</button>
-          <button id="camClose" class="cam-btn" onclick="stopCam()">✕</button>
+          <button id="camFlash" class="cam-btn hidden" onclick="toggleFlash()" title="Blesk"><svg class="ic"><use href="#i-zap"></use></svg></button>
+          <button id="camClose" class="cam-btn" onclick="stopCam()" title="Zavrieť kameru"><svg class="ic"><use href="#i-x"></use></svg></button>
         </div>
       </div>
     </div>
@@ -410,56 +657,56 @@
     <!-- ШАПКА -->
     <div class="header-wrapper">
       <div class="app-card header-card">
-        <div id="conflictBanner" class="hidden">⚠️ POZOR! Tu pracuje aj: <span id="conflictUser"></span></div>
+        <div id="conflictBanner" class="hidden"><svg class="ic"><use href="#i-triangle-alert"></use></svg> Tu pracuje aj: <span id="conflictUser"></span></div>
         <div class="app-info-bar">
           <div class="info-left">
-            <div class="info-item">👤 <span id="infoUser" class="info-val">--</span></div>
-            <div class="info-item">📂 <span id="infoSheet" class="info-val">--</span></div>
+            <div class="info-item"><svg class="ic"><use href="#i-user"></use></svg><span id="infoUser" class="info-val">—</span></div>
+            <div class="info-item"><svg class="ic"><use href="#i-warehouse"></use></svg><span id="infoSheet" class="info-val">—</span></div>
           </div>
-          <div id="syncStatus" class="status-pill s-ok">🟢 ONLINE</div>
+          <div id="syncStatus" class="status-pill s-ok">Online</div>
         </div>
         <div class="input-group">
-          <input type="text" id="codeInput" placeholder="SKENOVAŤ..." inputmode="none" autocomplete="off" autocorrect="off" autocapitalize="off" spellcheck="false">
-          <button id="manualToggleBtn" class="icon-btn" onclick="toggleKey()">⌨️</button>
-          <button id="cameraBtn" class="icon-btn" onclick="startCam()">📷</button>
+          <input type="text" id="codeInput" placeholder="Naskenujte alebo zadajte kód" inputmode="none" autocomplete="off" autocorrect="off" autocapitalize="off" spellcheck="false">
+          <button id="manualToggleBtn" class="icon-btn" onclick="toggleKey()" title="Klávesnica"><svg class="ic"><use href="#i-keyboard"></use></svg></button>
+          <button id="cameraBtn" class="icon-btn" onclick="startCam()" title="Kamera"><svg class="ic"><use href="#i-camera"></use></svg></button>
         </div>
-        <div id="readyIndicator">PRIPRAVENÝ</div>
+        <div id="readyIndicator">Pripravený na skenovanie</div>
       </div>
     </div>
 
     <div class="pc-log-area" id="pcLogArea">
       <div class="log-list" id="pcLogList">
-        <div class="log-placeholder">Čakám na akcie...</div>
+        <div class="log-placeholder">Zatiaľ žiadne skeny</div>
       </div>
     </div>
 
     <!-- ОСНОВНА ЗОНА -->
     <div class="content-area" id="contentArea">
-      <div id="waitingMsg">Naskenujte tovar alebo<br>zadajte kód...</div>
+      <div id="waitingMsg">Naskenujte tovar alebo zadajte kód</div>
       <div id="errCard" class="hidden shake-anim"></div>
 
       <div id="productCard" class="hidden app-card product-card">
-        <button class="close-x" onclick="closeUI()">✕</button>
+        <button class="close-x" onclick="closeUI()" title="Zavrieť"><svg class="ic"><use href="#i-x"></use></svg></button>
         <div id="pBrand" class="p-brand hidden"></div>
-        <div class="p-title" id="pName">Name</div>
+        <div class="p-title" id="pName">—</div>
         <div class="p-meta">
-          <div class="meta-row"><span>PLU:</span><span class="meta-val code-pill" id="pCode">--</span></div>
-          <div class="meta-row"><span>SKU:</span><span class="meta-val code-pill" id="pMpn">--</span></div>
-          <div class="meta-row"><span>EAN:</span><span class="meta-val code-pill" id="pEan">--</span></div>
+          <div class="meta-row"><span>PLU</span><span class="meta-val code-pill" id="pCode">—</span></div>
+          <div class="meta-row"><span>SKU</span><span class="meta-val code-pill" id="pMpn">—</span></div>
+          <div class="meta-row"><span>EAN</span><span class="meta-val code-pill" id="pEan">—</span></div>
         </div>
         <div class="p-stats-row">
-          <div class="stat-box"><div class="ps-lbl">PLÁN</div><div class="ps-val" id="pPlan">0</div></div>
-          <div class="stat-box"><div class="ps-lbl">REAL</div><div class="ps-val" id="pReal">0</div></div>
-          <div class="stat-box"><div class="ps-lbl">ROZDIEL</div><div class="ps-diff d-zero" id="pDiff">0</div></div>
+          <div class="stat-box"><div class="ps-lbl">Plán</div><div class="ps-val" id="pPlan">0</div></div>
+          <div class="stat-box"><div class="ps-lbl">Realita</div><div class="ps-val" id="pReal">0</div></div>
+          <div class="stat-box"><div class="ps-lbl">Rozdiel</div><div class="ps-diff d-zero" id="pDiff">0</div></div>
         </div>
         <div class="note-wrapper">
-          <div class="note-lbl">📝 Poznámka:</div>
+          <div class="note-lbl">Poznámka</div>
           <div class="note-input-row">
-            <textarea id="pNoteInput" placeholder="Napíšte poznámku..."></textarea>
-            <button class="icon-btn n-save" id="btnSaveNote" disabled onclick="reqSaveNote()">💾</button>
+            <textarea id="pNoteInput" placeholder="Napíšte poznámku…"></textarea>
+            <button class="icon-btn n-save" id="btnSaveNote" disabled onclick="reqSaveNote()" title="Uložiť poznámku"><svg class="ic"><use href="#i-save"></use></svg></button>
           </div>
         </div>
-        <div id="lastAction" class="hidden">--</div>
+        <div id="lastAction" class="hidden">—</div>
       </div>
     </div>
 
@@ -467,19 +714,19 @@
     <div class="footer-wrapper">
       <div class="app-card footer-card">
         <div id="qtyControls" class="qty-row disabled-ctrl">
-          <button class="q-act btn-p" onclick="act(1)">+</button>
+          <button class="q-act btn-p" onclick="act(1)" title="Pridať"><svg class="ic"><use href="#i-plus"></use></svg></button>
           <input type="number" id="mq" value="1" min="1" max="999" inputmode="numeric">
-          <button class="q-act btn-m" onclick="act(-1)">-</button>
+          <button class="q-act btn-m" onclick="act(-1)" title="Odobrať"><svg class="ic"><use href="#i-minus"></use></svg></button>
         </div>
         <div class="tool-row">
-          <button class="t-btn t-gray" onclick="openStats()">📊 ŠTAT</button>
-          <button class="t-btn t-orange" onclick="openMissing()">📦 ZOZNAM</button>
-          <button class="t-btn t-purple" onclick="openLog()">📜 LOG</button>
-          <button class="t-btn t-blue" onclick="refresh(true)">🔄</button>
-          <button class="t-btn t-dark" style="flex:0 0 40px;" onclick="openLocalSettings()">⚙️</button>
+          <button class="t-btn" onclick="openStats()"><svg class="ic"><use href="#i-chart-column"></use></svg><span>Prehľad</span></button>
+          <button class="t-btn" onclick="openMissing()"><svg class="ic"><use href="#i-clipboard-list"></use></svg><span>Zoznam</span></button>
+          <button class="t-btn" onclick="openLog()"><svg class="ic"><use href="#i-history"></use></svg><span>História</span></button>
+          <button class="t-btn t-sq" onclick="refresh(true)" title="Obnoviť dáta"><svg class="ic"><use href="#i-refresh-cw"></use></svg></button>
+          <button class="t-btn t-sq" onclick="openLocalSettings()" title="Nastavenia"><svg class="ic"><use href="#i-settings"></use></svg></button>
         </div>
         <div class="settings-row">
-          <button class="lb-back" onclick="resetToSetup()">👤 MENU / ZMENA SKLADU</button>
+          <button class="lb-back" onclick="resetToSetup()"><svg class="ic"><use href="#i-arrow-left"></use></svg><span>Zmeniť sklad alebo sa odhlásiť</span></button>
         </div>
       </div>
     </div>
@@ -487,8 +734,13 @@
   </div>
 
   <script src="js/config.js"></script>
+  <script src="js/icons.js"></script>
+  <script src="js/auth.js"></script>
   <script src="js/api.js"></script>
   <script src="js/importer.js"></script>
+  <script src="js/editor.js"></script>
+  <script src="js/people.js"></script>
+  <script src="js/sheets.js"></script>
   <script src="js/app.js"></script>
 </body>
 
