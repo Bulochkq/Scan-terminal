@@ -18,7 +18,8 @@ function ok(c, name, extra) { if (c) pass++; else { fail++; console.log('  ✗',
   await cmd('Emulation.setDeviceMetricsOverride', { width: 390, height: 844, deviceScaleFactor: 1, mobile: true });
   await cmd('Page.navigate', { url }); await sleep(3000);
 
-  ok(await ev(`$('.js-version').first().text()`) === 'v3.1.5', 'version 3.1.5', await ev(`$('.js-version').first().text()`));
+  // v3.1.6: версія береться з config.js (раніше тут стояло жорстко 'v3.1.5' і тест падав після кожного підняття)
+  ok(await ev(`$('.js-version').first().text() === 'v' + APP_CONFIG.APP_VERSION`), 'version label shown', await ev(`$('.js-version').first().text()`));
 
   // камера: дві підставні камери, реальний старт замінено
   await ev(`window.__cam = []; window.Html5Qrcode = { getCameras: function () { return Promise.resolve([{ id: 'f1', label: 'Front camera' }, { id: 'b1', label: 'Back camera' }]); } };

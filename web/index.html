@@ -2,7 +2,7 @@
 <html lang="sk">
 
 <head>
-  <!-- Skladový terminál — остання зміна: v3.1.5 (див. PROGRESS.md) -->
+  <!-- Skladový terminál — остання зміна: v3.1.6 (див. PROGRESS.md) -->
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=0, viewport-fit=cover">
   <title>Skladový terminál</title>
@@ -275,19 +275,97 @@
         </div>
 
       </div>
+
+      <!--
+        ГОЛОВНА НА ПК (v3.1.6, запит власника 30.09.2026): замість двох вузьких карток із
+        дрібним списком — сторінка на весь екран. Бічне меню як у Flex Bike Analytics,
+        велика таблиця складів, картка складу — панеллю справа (#sheetModal).
+        Видно лише після входу (#setupOverlay.is-home) і лише на екрані від 1024 px;
+        телефон і далі бачить компактні картки вище (#setupGrid). Логіка — sheets.js.
+      -->
+      <div class="home-desk" id="homeDesk">
+        <aside class="hd-side">
+          <div class="hd-brand">
+            <div class="hd-logo"><svg class="ic"><use href="#i-package"></use></svg></div>
+            <div class="hd-brand-txt">
+              <div class="hd-app">Skladový terminál</div>
+              <div class="hd-site js-site">—</div>
+            </div>
+          </div>
+          <nav class="hd-nav">
+            <button type="button" class="hd-nav-item active" data-nav="sheets" onclick="Home.go('sheets')"><svg class="ic"><use href="#i-warehouse"></use></svg><span>Sklady</span></button>
+            <button type="button" class="hd-nav-item hd-admin" data-nav="history" onclick="Home.go('history')"><svg class="ic"><use href="#i-history"></use></svg><span>História</span></button>
+            <button type="button" class="hd-nav-item hd-admin" data-nav="backups" onclick="Home.go('backups')"><svg class="ic"><use href="#i-archive"></use></svg><span>Zálohy</span></button>
+            <button type="button" class="hd-nav-item hd-admin" data-nav="people" onclick="Home.go('people')"><svg class="ic"><use href="#i-users"></use></svg><span>Ľudia a prístupy</span></button>
+          </nav>
+          <div class="hd-user">
+            <div class="hd-me">
+              <div class="me-av" id="hdAvatar">?</div>
+              <div class="hd-me-txt">
+                <div class="hd-me-name" id="hdName">Načítavam…</div>
+                <div class="hd-me-role" id="hdRole"></div>
+              </div>
+            </div>
+            <div class="hd-me-actions">
+              <button type="button" class="hd-mini" onclick="changeOwnPassword()" title="Zmeniť heslo"><svg class="ic"><use href="#i-key-round"></use></svg><span>Heslo</span></button>
+              <button type="button" class="hd-mini" onclick="doLogout()" title="Odhlásiť sa"><svg class="ic"><use href="#i-log-out"></use></svg><span>Odhlásiť</span></button>
+            </div>
+          </div>
+          <div class="hd-ver">Verzia <b class="js-ver">3</b></div>
+        </aside>
+
+        <main class="hd-main" id="hdMain">
+          <div class="hd-head">
+            <div class="hd-titles">
+              <h1 class="hd-title" id="hdTitle">Sklady</h1>
+              <div class="hd-sub" id="hdSub"></div>
+            </div>
+            <div class="hd-tools">
+              <div class="search-box hd-search">
+                <svg class="ic"><use href="#i-search"></use></svg>
+                <input type="text" id="hdSearch" class="uni-search" placeholder="Hľadať sklad…" oninput="Sheets.render()">
+              </div>
+              <button class="btn btn-secondary hd-btn" onclick="refreshSheetList()" title="Obnoviť zoznam"><svg class="ic"><use href="#i-refresh-cw"></use></svg><span>Obnoviť</span></button>
+              <button class="btn btn-primary hd-btn hd-admin" onclick="reqCreateSheet()"><svg class="ic"><use href="#i-plus"></use></svg><span>Nový sklad</span></button>
+            </div>
+          </div>
+          <div class="ed-chips hd-chips" id="hdChips"></div>
+          <div class="hd-table-card" id="hdTable"></div>
+          <div class="hd-foot" id="hdFoot"></div>
+        </main>
+      </div>
     </div>
 
-    <!-- СКЛАД: деталі і дії (v3.1.4) — sheets.js -->
-    <div id="sheetModal" class="hidden">
+    <!--
+      СКЛАД: деталі і дії (v3.1.4) — sheets.js.
+      v3.1.6: на ПК — панель справа на всю висоту (таблиця складів лишається клікабельною,
+      клік по іншому складу перемикає панель); на телефоні — вікно, як раніше.
+      Клік повз вікно (на телефоні) закриває його.
+    -->
+    <div id="sheetModal" class="hidden" onclick="if (event.target === this) Sheets.closeDetail()">
       <div class="sm-card popup-card sheet-card">
         <div class="sm-close" onclick="Sheets.closeDetail()" title="Zavrieť"><svg class="ic"><use href="#i-x"></use></svg></div>
         <div class="sd-head">
           <div class="sd-icon"><svg class="ic"><use href="#i-warehouse"></use></svg></div>
           <div class="sd-titles">
             <div class="sm-title" id="sdName">—</div>
-            <div class="sd-sub" id="sdCreated">—</div>
+            <div class="sd-sub"><span id="sdPill"></span><span id="sdCreated">—</span></div>
           </div>
         </div>
+        <button class="l-btn lb-go sd-start" onclick="Sheets.act('terminal')"><svg class="ic"><use href="#i-scan-barcode"></use></svg><span>Spustiť terminál v tomto sklade</span></button>
+        <div class="sd-progress">
+          <div class="sd-pct-row"><span class="sd-pct" id="sdPct">0 %</span><span class="sd-pct-lbl" id="sdPctLbl">hotovo</span></div>
+          <div class="prog-w"><div class="prog-f" id="sdBar"></div></div>
+        </div>
+        <div class="sd-stats">
+          <div class="sd-stat"><div class="ps-lbl">Položky</div><div class="sd-val" id="sdItems">0</div></div>
+          <div class="sd-stat"><div class="ps-lbl">Sedí</div><div class="sd-val" id="sdDone">0</div></div>
+          <div class="sd-stat"><div class="ps-lbl">Plán</div><div class="sd-val" id="sdPlan">0</div></div>
+          <div class="sd-stat"><div class="ps-lbl">Realita</div><div class="sd-val" id="sdReal">0</div></div>
+          <div class="sd-stat"><div class="ps-lbl">Chýba</div><div class="sd-val c-red" id="sdMiss">0</div></div>
+          <div class="sd-stat"><div class="ps-lbl">Naviac</div><div class="sd-val c-orange" id="sdExtra">0</div></div>
+        </div>
+        <div class="sd-last" id="sdLast"></div>
         <div class="su-field">
           <div class="su-lbl">Stav</div>
           <div class="seg seg-status" id="sdStatus">
@@ -298,17 +376,7 @@
           </div>
           <div class="pp-hint" id="sdStatusNote"></div>
         </div>
-        <div class="sd-stats">
-          <div class="sd-stat"><div class="ps-lbl">Položky</div><div class="sd-val" id="sdItems">0</div></div>
-          <div class="sd-stat"><div class="ps-lbl">Sedí</div><div class="sd-val" id="sdDone">0</div></div>
-          <div class="sd-stat"><div class="ps-lbl">Plán</div><div class="sd-val" id="sdPlan">0</div></div>
-          <div class="sd-stat"><div class="ps-lbl">Realita</div><div class="sd-val" id="sdReal">0</div></div>
-        </div>
-        <div class="sd-progress">
-          <div class="prog-w"><div class="prog-f" id="sdBar"></div></div>
-          <span id="sdPct">0 %</span>
-        </div>
-        <div class="sd-last" id="sdLast"></div>
+        <div class="su-lbl sd-sec">Akcie</div>
         <div class="admin-grid sd-actions">
           <button class="ag-btn ag-primary" onclick="Sheets.act('items')"><svg class="ic"><use href="#i-clipboard-list"></use></svg><span>Tovar na sklade</span></button>
           <button class="ag-btn" onclick="Sheets.act('logs')"><svg class="ic"><use href="#i-history"></use></svg><span>História skladu</span></button>
@@ -317,7 +385,6 @@
           <button class="ag-btn" onclick="Sheets.act('rename')"><svg class="ic"><use href="#i-pencil"></use></svg><span>Premenovať</span></button>
           <button class="ag-btn ag-danger" onclick="Sheets.act('delete')"><svg class="ic"><use href="#i-trash-2"></use></svg><span>Zmazať sklad</span></button>
         </div>
-        <button class="l-btn lb-go" onclick="Sheets.act('terminal')"><svg class="ic"><use href="#i-scan-barcode"></use></svg><span>Spustiť terminál v tomto sklade</span></button>
       </div>
     </div>
 

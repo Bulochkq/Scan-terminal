@@ -1,6 +1,6 @@
 /**
  * EDITOR.JS — єдина табличка складу (Editor) і табличка журналу (LogView).
- * Остання зміна: v3.1.4 (див. PROGRESS.md у корені репо)
+ * Остання зміна: v3.1.6 (див. PROGRESS.md у корені репо)
  *
  * v3.1.2: «Zoznam tovaru» і «Tabuľka skladu» об'єднано в ОДНУ таблицю.
  *  - За замовчуванням — ЛИШЕ ПЕРЕГЛЯД (замкнено): випадково нічого не змінити.
@@ -637,26 +637,35 @@
   };
   function actInfo(a) { return ACTIONS[a] || { label: a, cls: 'act-sys', group: 'system' }; }
 
+  /**
+   * v3.1.6: на головній ПК журнал стоїть праворуч від меню — на 240 px вужче. Сума
+   * фіксованих ширин (1216 px) там уже не влазила, і з'являлась прокрутка вбік.
+   * Тепер «Názov tovaru» і «Pracovník» гнучкі (забирають вільне місце), а на вужчому
+   * екрані ховається SKU (як на телефоні; у пошуку й експорті він лишається).
+   */
   function logColumns(showSheet) {
     var phone = narrow();
+    var tight = ($('#lgTable').width() || global.innerWidth) < 1100;
     function t(field, title, width, extra) {
-      return Object.assign({ title: title, field: field, width: width, formatter: function (c) { return esc(c.getValue()); } }, extra || {});
+      var col = { title: title, field: field, formatter: function (c) { return esc(c.getValue()); } };
+      if (width) col.width = width;               // без width — колонка гнучка (widthGrow)
+      return Object.assign(col, extra || {});
     }
     return [
       t('time', 'Čas', 142, { sorter: function (a, b, ar, br) { return ar.getData().id - br.getData().id; } }),
       t('sheet', 'Sklad', 110, { visible: showSheet && !phone }),
       t('plu', 'PLU', 92),
-      t('name', 'Názov tovaru', 260, { widthGrow: 3, minWidth: 150 }),
-      t('code', 'SKU', 110, { visible: !phone }),
+      t('name', 'Názov tovaru', undefined, { widthGrow: 3, minWidth: 160 }),
+      t('code', 'SKU', 110, { visible: !phone && !tight }),
       t('ean', 'EAN', 118, { visible: !phone }),
       {
         title: 'Akcia', field: 'action', width: 104,
         formatter: function (c) { var i = actInfo(c.getValue()); return '<span class="act-pill ' + i.cls + '">' + esc(i.label) + '</span>'; },
         accessorDownload: function (v) { return actInfo(v).label; }
       },
-      t('worker', 'Pracovník', 100),
-      t('oldVal', 'Bolo', 90, { hozAlign: 'right', tooltip: true }),
-      t('newVal', 'Je', 90, { hozAlign: 'right', tooltip: true })
+      t('worker', 'Pracovník', undefined, { widthGrow: 1, minWidth: 110 }),
+      t('oldVal', 'Bolo', 80, { hozAlign: 'right', tooltip: true }),
+      t('newVal', 'Je', 80, { hozAlign: 'right', tooltip: true })
     ];
   }
 
@@ -684,7 +693,8 @@
     $('#lgSearch').val('');
     $('#lgChips .chip').removeClass('active').filter('[data-f="all"]').addClass('active');
     $('#lgClearBtn').toggleClass('hidden', !(L.all && global.Auth.can('owner')));
-    $('#logsModal').removeClass('hidden');
+    // v3.1.6: lg-all — загальний журнал; меню головної на ПК підсвічує тоді «História»
+    $('#logsModal').toggleClass('lg-all', L.all).removeClass('hidden');
     return loadLogs();
   }
 

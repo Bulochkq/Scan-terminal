@@ -1,6 +1,6 @@
 /**
  * IMPORTER.JS — читання PDF та Excel у браузері.
- * Остання зміна: v3.1.4 (іконки замість емодзі, склад передається явно)
+ * Остання зміна: v3.1.6 (точні числа й коди з Excel/CSV, «Plán spolu» у зведенні)
  *
  * Саме заради цього файлу фронтенд і виноситься з Apps Script: там PDF
  * прочитати нічим. Обидва формати зводяться до однієї 2D-сітки, далі йде
@@ -70,7 +70,8 @@
   ];
 
   var state = {
-    grid: [],          // усі рядки файлу
+    grid: [],          // усі рядки файлу — текстом, як їх видно в Excel
+    vals: [],          // ті самі клітинки «як є»: у Excel число лишається числом (v3.1.6)
     headerRow: -1,
     mapping: {},       // key -> індекс колонки (-1 = не використовується)
     fileName: '',
@@ -83,26 +84,115 @@
     return String(v == null ? '' : v).toLowerCase().replace(/\s+/g, ' ').trim();
   }
 
-  function toNumber(v) {
-    if (v == null || v === '') return 0;
-    var s = String(v).replace(/ /g, '').replace(/\s/g, '').replace(',', '.');
-    s = s.replace(/[^0-9.\-]/g, '');
+  /*
+   * ВИПРАВЛЕНО (v3.1.6): план ≥ 1000 з Excel ламався. SheetJS з raw:false віддає
+   * число так, як його показує формат клітинки: 1234 з форматом «#,##0» → «1,234»,
+   * а старий toNumber міняв кому на крапку і брав 1,234 → 1 (так само «1.234,00» → 1).
+   * Тепер з Excel береться саме число з клітинки (cellQty), а текст — CSV, PDF,
+   * текстові клітинки — розбирається з урахуванням роздільників усієї колонки.
+   */
+
+  /** Прибирає роздільники тисяч-пробіли (звичайні й нерозривні) та апостроф («1'234»). */
+  function squeeze(v) { return String(v == null ? '' : v).replace(/[\s  ']/g, ''); }
+
+  /** Ціле число штук; округлення до тисячних спершу — щоб 2.9999999 з формули Excel не став 2. */
+  function floorQty(n) { return Math.floor(Math.round(n * 1000) / 1000); }
+
+  /**
+   * Який знак у колонці десятковий — кома чи крапка. Одне число часто не скаже
+   * («1,234» — це 1234 чи 1,234?), тому дивимось на всю колонку:
+   *  — є і крапка, і кома → десятковий той, що правіше («1.234,50»);
+   *  — знак повторюється («1,234,567») → це тисячі;
+   *  — після знака не 3 цифри («12,5», «3,00»), перед ним 0 чи понад 3 цифри → десятковий;
+   *  — лишились тільки «x,xxx»: якщо в колонці є й числа без знака — це тисячі
+   *    (десяткові формат ставить у КОЖНЕ число, тисячі — лише в ≥ 1000),
+   *    інакше — десятковий (ERP пише «5,000» = 5 штук).
+   */
+  function detectDecimal(texts) {
+    var vote = { ',': 0, '.': 0 }, amb = { ',': 0, '.': 0 }, plain = 0;
+    texts.forEach(function (t) {
+      var s = squeeze(t).replace(/^[-+]|-$/g, '');
+      if (!/\d/.test(s)) return;
+      var nc = (s.match(/,/g) || []).length, nd = (s.match(/\./g) || []).length;
+      if (nc && nd) { vote[s.lastIndexOf(',') > s.lastIndexOf('.') ? ',' : '.']++; return; }
+      if (!nc && !nd) { plain++; return; }
+      var sep = nc ? ',' : '.';
+      if (nc > 1 || nd > 1) { vote[nc ? '.' : ',']++; return; }
+      var parts = s.split(sep);
+      if (parts[1].length !== 3 || !parts[0] || /^0+$/.test(parts[0]) || parts[0].length > 3) vote[sep]++;
+      else amb[sep]++;
+    });
+    if (vote[','] !== vote['.']) return vote[','] > vote['.'] ? ',' : '.';
+    var a = amb[','] >= amb['.'] ? ',' : '.';
+    if (!amb[a]) return ',';                            // лише цілі числа — знак не важливий
+    return plain ? (a === ',' ? '.' : ',') : a;
+  }
+
+  /** Кількість з тексту; dec — десятковий знак колонки (detectDecimal). */
+  function parseQty(text, dec) {
+    var s = squeeze(text);
+    if (!/\d/.test(s)) return 0;
+    var neg = /^-/.test(s) || /-$/.test(s);
+    s = s.replace(/[^0-9.,]/g, '');
+    var nc = (s.match(/,/g) || []).length, nd = (s.match(/\./g) || []).length;
+    var d = dec || ',';
+    if (nc && nd) d = s.lastIndexOf(',') > s.lastIndexOf('.') ? ',' : '.';   // саме число каже точно
+    else if (nc > 1) d = '.';
+    else if (nd > 1) d = ',';
+    s = s.split(d === ',' ? '.' : ',').join('').replace(d, '.');
     var n = parseFloat(s);
-    return isNaN(n) ? 0 : Math.floor(n);
+    return isNaN(n) ? 0 : floorQty(neg ? -n : n);
+  }
+
+  function textAt(r, c) {
+    var row = state.grid[r];
+    return String(row && row[c] != null ? row[c] : '').trim();
+  }
+  function rawAt(r, c) {
+    var row = state.vals[r];
+    return row ? row[c] : undefined;
+  }
+
+  /** Кількість з клітинки: число з Excel — як є, текст — через parseQty. */
+  function cellQty(r, c, dec) {
+    var raw = rawAt(r, c);
+    if (typeof raw === 'number' && isFinite(raw)) return floorQty(raw);
+    return parseQty(textAt(r, c), dec);
+  }
+
+  /**
+   * ВИПРАВЛЕНО (v3.1.6): код (PLU, EAN, SKU), записаний в Excel ЧИСЛОМ, SheetJS
+   * показував як «8.59E+12» (формат General) — такий EAN ніколи не збігся б зі
+   * сканом. Для числа беремо всі цифри; текст лише з цифр (напр. «0012345» з
+   * форматом «0000000») лишаємо як є — разом з нулями на початку.
+   */
+  function cellCode(r, c) {
+    var text = textAt(r, c), raw = rawAt(r, c);
+    if (typeof raw === 'number' && isFinite(raw) && Math.floor(raw) === raw && !/^\d+$/.test(text)) return String(raw);
+    return text;
   }
 
   // --------------------------------------------------- читання Excel/CSV
 
+  /** Повертає { grid: текст клітинок, vals: клітинки «як є» } — див. state. */
   function readSpreadsheet(file) {
+    // v3.1.6: CSV — raw:true, тобто SheetJS нічого не розбирає сам: інакше він
+    // читає числа по-англійськи («1.234,00» → 1.234, «12,5» → 125). Числа з CSV
+    // розбирає parseQty, а коди лишаються текстом як у файлі (з нулями на початку).
+    var isText = /\.(csv|txt)$/i.test(file.name);
     return new Promise(function (resolve, reject) {
       var reader = new FileReader();
       reader.onerror = function () { reject(new Error('Súbor sa nepodarilo prečítať.')); };
       reader.onload = function (e) {
         try {
-          var wb = XLSX.read(new Uint8Array(e.target.result), { type: 'array' });
+          var wb = XLSX.read(new Uint8Array(e.target.result), { type: 'array', raw: isText });
           var ws = wb.Sheets[wb.SheetNames[0]];
           var grid = XLSX.utils.sheet_to_json(ws, { header: 1, raw: false, defval: '' });
-          resolve(grid.map(function (r) { return r.map(function (c) { return String(c == null ? '' : c); }); }));
+          var vals = XLSX.utils.sheet_to_json(ws, { header: 1, raw: true, defval: '' });
+          resolve({
+            grid: grid.map(function (r) { return r.map(function (c) { return String(c == null ? '' : c); }); }),
+            vals: vals
+          });
         } catch (err) {
           reject(new Error('Neplatný Excel súbor: ' + err.message));
         }
@@ -276,13 +366,16 @@
     ready
       .then(function () {
         setAdminBusy(true, 'Čítam súbor…');
-        return isPdf ? readPdf(file) : readSpreadsheet(file);
+        // PDF має лише текст — його числа розбирає parseQty (vals порожні)
+        return isPdf ? readPdf(file).then(function (g) { return { grid: g, vals: [] }; }) : readSpreadsheet(file);
       })
-      .then(function (grid) {
+      .then(function (res) {
         setAdminBusy(false);
+        var grid = res && res.grid;
         if (!grid || !grid.length) throw new Error('Súbor je prázdny.');
 
         state.grid = grid;
+        state.vals = res.vals || [];
         state.headerRow = detectHeader(grid);
 
         if (state.headerRow === -1) {
@@ -338,24 +431,32 @@
     var m = state.mapping;
     var out = [];
     var brandRe = /\[(.*?)\]/;
+    var first = state.headerRow + 1;
 
-    for (var r = state.headerRow + 1; r < state.grid.length; r++) {
-      var row = state.grid[r];
-      if (!row) continue;
+    // v3.1.6: десятковий знак вирішує вся колонка «Plán» (для тексту: CSV, PDF)
+    var dec = ',';
+    if (m.plan > -1) {
+      var texts = [];
+      for (var t = first; t < state.grid.length; t++) texts.push(textAt(t, m.plan));
+      dec = detectDecimal(texts);
+    }
 
-      var plu = m.plu > -1 ? String(row[m.plu] == null ? '' : row[m.plu]).trim() : '';
+    for (var r = first; r < state.grid.length; r++) {
+      if (!state.grid[r]) continue;
+
+      var plu = m.plu > -1 ? cellCode(r, m.plu) : '';
       if (!plu) continue;
 
-      var brand = m.brand > -1 ? String(row[m.brand] || '').trim() : '';
+      var brand = m.brand > -1 ? textAt(r, m.brand) : '';
       var bm = brand.match(brandRe);
       if (bm && bm[1]) brand = bm[1];
 
       out.push({
         plu:   plu,
-        name:  m.name  > -1 ? String(row[m.name]  || '').trim() : '',
-        ean:   m.ean   > -1 ? String(row[m.ean]   || '').trim() : '',
-        code:  m.code  > -1 ? String(row[m.code]  || '').trim() : '',
-        plan:  m.plan  > -1 ? toNumber(row[m.plan]) : 0,
+        name:  m.name  > -1 ? textAt(r, m.name) : '',
+        ean:   m.ean   > -1 ? cellCode(r, m.ean) : '',
+        code:  m.code  > -1 ? cellCode(r, m.code) : '',
+        plan:  m.plan  > -1 ? cellQty(r, m.plan, dec) : 0,
         brand: brand
       });
     }
@@ -378,9 +479,9 @@
     $('#impPreviewBody').html(body || '<tr><td colspan="6">Žiadne riadky</td></tr>');
 
     // зведення
-    var seen = {}, dup = 0, noName = 0, noPlan = 0;
+    var seen = {}, dup = 0, noName = 0, noPlan = 0, planSum = 0;
     rows.forEach(function (r) {
-      if (seen[r.plu]) dup++; else seen[r.plu] = true;
+      if (seen[r.plu]) dup++; else { seen[r.plu] = true; planSum += r.plan; }
       if (!r.name) noName++;
       if (!r.plan) noPlan++;
     });
@@ -389,6 +490,11 @@
       '<div class="imp-chip good">' + icon('circle-check') + '<span>Riadkov: ' + rows.length + '</span></div>',
       '<div class="imp-chip">' + icon('file-spreadsheet') + '<span>' + escapeHtml(state.fileName) + '</span></div>'
     ];
+    // v3.1.6: súčet plánu — rýchla kontrola voči ERP (zlé čísla by sa tu hneď ukázali)
+    if (state.mapping.plan > -1 && rows.length) {
+      chips.push('<div class="imp-chip">' + icon('chart-column') + '<span>Plán spolu: ' +
+                 planSum.toLocaleString('sk-SK') + '</span></div>');
+    }
     if (dup)    chips.push('<div class="imp-chip warn">' + icon('triangle-alert') + '<span>Duplicitné PLU: ' + dup + ' (ponechá sa prvé)</span></div>');
     if (noName) chips.push('<div class="imp-chip warn">' + icon('triangle-alert') + '<span>Bez názvu: ' + noName + '</span></div>');
     if (noPlan) chips.push('<div class="imp-chip">' + icon('info') + '<span>Plán = 0: ' + noPlan + '</span></div>');
@@ -443,7 +549,7 @@
 
   /** v3.1.4: цільовий склад передається явно (з картки складу), а не з випадного списку. */
   function reset(sheetId, sheetName) {
-    state = { grid: [], headerRow: -1, mapping: {}, fileName: '', parsed: [],
+    state = { grid: [], vals: [], headerRow: -1, mapping: {}, fileName: '', parsed: [],
               sheetId: sheetId || '', sheetName: sheetName || '' };
     $('#impStepMap, #impStepGo').addClass('hidden');
     $('#impFileInfo').addClass('hidden').empty();

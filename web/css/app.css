@@ -1,6 +1,9 @@
 /* ============================================================
    SKLADOVÝ TERMINÁL — стилі
-   Остання зміна: v3.1.5 (див. PROGRESS.md у корені репо)
+   Остання зміна: v3.1.6 (див. PROGRESS.md у корені репо)
+
+   v3.1.6: ГОЛОВНА НА ПК — сторінка на весь екран (бічне меню, таблиця складів,
+   картка складу панеллю справа). Телефон — компактні картки, як раніше. Розділ унизу.
 
    v3.1.4: ІКОНКИ — лише однотонні лінійні Lucide (.ic, спрайт у index.html).
    Емодзі в інтерфейсі не використовуємо (рішення власника 29.09.2026).
@@ -25,10 +28,17 @@
   --c-border:  #e5e7eb;  --c-border-2: #d1d5db;
   --c-bg:      #f3f4f6;  --c-surface: #ffffff;  --c-surface-2: #f9fafb;
 
+  /* v3.1.6: бічне меню головної на ПК — ті самі відтінки, що у Flex Bike Analytics (slate) */
+  --c-side-bg: #020617;  --c-side-line: #1e293b;  --c-side-text: #cbd5e1;  --c-side-muted: #94a3b8;
+  --c-side-dim: #64748b; --c-side-strong: #f8fafc;
+  --c-side-hover: rgba(148,163,184,0.10);
+  --c-side-active: #60a5fa;  --c-side-active-bg: rgba(59,130,246,0.12);  --c-side-active-line: rgba(59,130,246,0.28);
+  --w-side: 240px;  --w-drawer: 460px;
+
   /* типографіка */
   --font: 'Inter', -apple-system, 'Segoe UI', Roboto, system-ui, sans-serif;
   --mono: ui-monospace, 'SF Mono', 'Cascadia Mono', Consolas, monospace;
-  --fs-2xs: 10px; --fs-xs: 11px; --fs-sm: 12px; --fs-md: 14px; --fs-lg: 15px; --fs-xl: 17px; --fs-2xl: 20px;
+  --fs-2xs: 10px; --fs-xs: 11px; --fs-sm: 12px; --fs-md: 14px; --fs-lg: 15px; --fs-xl: 17px; --fs-2xl: 20px; --fs-3xl: 24px;
 
   /* форма */
   --r-sm: 4px; --r-md: 6px; --r-lg: 8px; --r-xl: 10px;
@@ -949,12 +959,17 @@ svg.custom-arrow { width: 14px; height: 14px; color: var(--c-subtle); transition
 .sd-icon .ic { width: 22px; height: 22px; }
 .sd-titles { min-width: 0; }
 .sd-titles .sm-title { padding-right: 0; margin-top: 0; overflow-wrap: anywhere; }
-.sd-sub { font-size: var(--fs-xs); color: var(--c-muted); font-weight: 600; }
-.sd-stats { display: grid; grid-template-columns: repeat(4, 1fr); gap: 6px; }
+.sd-sub { font-size: var(--fs-xs); color: var(--c-muted); font-weight: 600; display: flex; align-items: center; gap: 8px; flex-wrap: wrap; margin-top: 3px; }
+/* v3.1.6: шість цифр (+ Chýba, Naviac) у три колонки */
+.sd-stats { display: grid; grid-template-columns: repeat(3, 1fr); gap: 6px; }
 .sd-stat { background: var(--c-surface-2); border: 1px solid var(--c-border); border-radius: var(--r-md); padding: 6px 8px; text-align: center; }
-.sd-val { font-size: var(--fs-lg); font-weight: 800; color: var(--c-text); }
-.sd-progress { display: flex; align-items: center; gap: 8px; font-size: var(--fs-xs); font-weight: 700; color: var(--c-muted); }
-.sd-progress .prog-w { flex: 1; margin: 0; height: 10px; }
+.sd-val { font-size: var(--fs-lg); font-weight: 800; color: var(--c-text); font-variant-numeric: tabular-nums; }
+.sd-progress { display: flex; flex-direction: column; gap: 6px; }
+.sd-progress .prog-w { margin: 0; height: 10px; }
+.sd-pct-row { display: flex; align-items: baseline; gap: 8px; }
+.sd-pct { font-size: var(--fs-2xl); font-weight: 800; color: var(--c-text); font-variant-numeric: tabular-nums; }
+.sd-pct-lbl { font-size: var(--fs-xs); font-weight: 600; color: var(--c-muted); }
+.sd-sec { margin-top: 2px; }
 .sd-last {
   display: flex; align-items: center; gap: 6px; font-size: var(--fs-xs); color: var(--c-text-2);
   background: var(--c-surface-2); border: 1px solid var(--c-border); border-radius: var(--r-md); padding: 6px 8px;
@@ -966,7 +981,7 @@ svg.custom-arrow { width: 14px; height: 14px; color: var(--c-subtle); transition
 .seg-status button.active[data-s="active"]   { background: var(--c-primary); }
 .seg-status button.active[data-s="done"]     { background: var(--c-success); }
 .seg-status button.active[data-s="archived"] { background: #6d28d9; }
-@media (max-width: 420px) { .sd-stats { grid-template-columns: repeat(2, 1fr); } }
+@media (max-width: 340px) { .sd-stats { grid-template-columns: repeat(2, 1fr); } }
 
 /* зміна свого пароля — поверх списку людей */
 #pwModal {
@@ -982,3 +997,142 @@ svg.custom-arrow { width: 14px; height: 14px; color: var(--c-subtle); transition
   .me-actions .btn { padding: 0 8px; min-height: 28px; }
   .me-actions .btn .ic { width: 15px; height: 15px; }
 }
+
+/* ============================================================
+   v3.1.6 — ГОЛОВНА НА ПК (запит власника 30.09.2026)
+   Від 1024 px після входу: бічне меню (як у Flex Bike Analytics) + сторінка
+   «Sklady» з великою таблицею; картка складу — панеллю справа на всю висоту;
+   «História», «Zálohy», «Ľudia» відкриваються праворуч від меню (меню лишається).
+   Нижче 1024 px нічого з цього не видно — телефон бачить компактні картки.
+   ============================================================ */
+.home-desk { display: none; }
+
+@media (min-width: 1024px) {
+  #setupOverlay.is-home { display: block; padding: 0; overflow: hidden; }
+  #setupOverlay.is-home #setupGrid { display: none; }
+  #setupOverlay.is-home .home-desk { display: grid; grid-template-columns: var(--w-side) minmax(0, 1fr); height: 100%; }
+
+  /* сторінки меню — праворуч від нього, меню лишається клікабельним */
+  #setupOverlay.is-home:not(.hidden) ~ #peopleModal,
+  #setupOverlay.is-home:not(.hidden) ~ #backupModal,
+  #setupOverlay.is-home:not(.hidden) ~ #logsModal { left: var(--w-side); width: auto; }
+  #setupOverlay.is-home:not(.hidden) ~ #peopleModal .modal-fullscreen,
+  #setupOverlay.is-home:not(.hidden) ~ #backupModal .modal-fullscreen,
+  #setupOverlay.is-home:not(.hidden) ~ #logsModal .modal-fullscreen { width: 100% !important; }
+
+  /*
+   * Картка складу — панель справа. Фон під нею прозорий і не ловить кліки:
+   * таблицю можна гортати й клікати інший склад, панель просто перемикається.
+   */
+  #setupOverlay.is-home:not(.hidden) ~ #sheetModal {
+    left: var(--w-side); width: auto; justify-content: flex-end; align-items: stretch;
+    background: transparent; backdrop-filter: none; -webkit-backdrop-filter: none; pointer-events: none;
+  }
+  #setupOverlay.is-home:not(.hidden) ~ #sheetModal .sheet-card {
+    pointer-events: auto; width: var(--w-drawer) !important; max-width: var(--w-drawer) !important;
+    height: 100% !important; max-height: none !important; margin: 0 !important; border-radius: 0 !important;
+    padding: 22px 24px !important; gap: 14px; border-left: 1px solid var(--c-border);
+    box-shadow: -12px 0 32px rgba(16,24,40,0.12) !important; animation: drawerIn 0.18s ease-out;
+  }
+  #setupOverlay.is-home:not(.hidden) ~ #sheetModal .sd-actions { grid-template-columns: 1fr 1fr; }
+}
+@keyframes drawerIn { from { opacity: 0; transform: translateX(24px); } to { opacity: 1; transform: none; } }
+
+/* --- бічне меню --- */
+.hd-side {
+  background: var(--c-side-bg); color: var(--c-side-text); border-right: 1px solid var(--c-side-line);
+  display: flex; flex-direction: column; gap: 18px; padding: 18px 14px 14px; min-height: 0; overflow-y: auto;
+}
+.hd-brand { display: flex; align-items: center; gap: 10px; padding: 2px 4px 4px; }
+.hd-logo {
+  width: 36px; height: 36px; flex-shrink: 0; border-radius: var(--r-lg); background: var(--c-primary);
+  color: var(--c-surface); display: flex; align-items: center; justify-content: center;
+}
+.hd-logo .ic { width: 20px; height: 20px; }
+.hd-brand-txt { min-width: 0; }
+.hd-app { font-size: var(--fs-lg); font-weight: 800; color: var(--c-side-strong); letter-spacing: -0.01em; white-space: nowrap; }
+.hd-site { font-size: var(--fs-xs); font-weight: 600; color: var(--c-side-muted); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+
+.hd-nav { display: flex; flex-direction: column; gap: 4px; flex: 1; }
+.hd-nav-item {
+  position: relative; display: flex; align-items: center; gap: 12px; height: 42px; padding: 0 12px;
+  border: 1px solid transparent; border-radius: var(--r-lg); background: none; cursor: pointer; text-align: left;
+  font-family: var(--font); font-size: var(--fs-md); font-weight: 600; color: var(--c-side-muted);
+  transition: background 0.12s, color 0.12s;
+}
+.hd-nav-item:hover { background: var(--c-side-hover); color: var(--c-side-strong); }
+.hd-nav-item.active { background: var(--c-side-active-bg); border-color: var(--c-side-active-line); color: var(--c-side-active); }
+.hd-nav-item.active::before {
+  content: ''; position: absolute; left: -1px; top: 25%; bottom: 25%; width: 3px;
+  border-radius: 0 3px 3px 0; background: var(--c-primary);
+}
+.hd-nav-item .ic { width: 19px; height: 19px; }
+
+.hd-user { border-top: 1px solid var(--c-side-line); padding-top: 14px; display: flex; flex-direction: column; gap: 10px; }
+.hd-me { display: flex; align-items: center; gap: 10px; min-width: 0; }
+.hd-me-txt { min-width: 0; }
+.hd-me-name { font-size: var(--fs-md); font-weight: 700; color: var(--c-side-strong); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.hd-me-role { font-size: var(--fs-xs); font-weight: 600; color: var(--c-side-muted); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.hd-me-actions { display: flex; gap: 6px; }
+.hd-mini {
+  flex: 1; height: 30px; display: inline-flex; align-items: center; justify-content: center; gap: 6px;
+  border: 1px solid var(--c-side-line); border-radius: var(--r-md); background: transparent; cursor: pointer;
+  font-family: var(--font); font-size: var(--fs-sm); font-weight: 600; color: var(--c-side-text);
+}
+.hd-mini:hover { background: var(--c-side-hover); color: var(--c-side-strong); }
+.hd-mini .ic { width: 14px; height: 14px; }
+.hd-ver { font-size: var(--fs-xs); color: var(--c-side-dim); padding: 0 4px; font-variant-numeric: tabular-nums; }
+.hd-ver b { color: var(--c-side-text); font-weight: 700; }
+
+/* --- сторінка «Sklady» --- */
+.hd-main { min-width: 0; min-height: 0; display: flex; flex-direction: column; gap: 14px; padding: 26px 32px 18px; background: var(--c-bg); }
+.hd-head { display: flex; align-items: flex-end; justify-content: space-between; gap: 16px; flex-wrap: wrap; }
+.hd-title { margin: 0; font-size: var(--fs-3xl); font-weight: 800; letter-spacing: -0.01em; color: var(--c-text); line-height: 1.2; }
+.hd-sub { margin-top: 4px; font-size: var(--fs-md); color: var(--c-muted); font-weight: 500; }
+.hd-tools { display: flex; align-items: center; gap: 8px; }
+.hd-search { flex: none; width: 280px; }
+.hd-search .uni-search { height: 36px; font-size: var(--fs-md); }
+.hd-btn { min-height: 36px; padding: 0 14px; font-size: var(--fs-md); }
+.hd-chips .chip { height: 30px; padding: 0 12px; font-size: var(--fs-sm); }
+.chip-n { margin-left: 6px; font-weight: 600; opacity: 0.65; font-variant-numeric: tabular-nums; }
+.hd-table-card {
+  flex: 1; min-height: 0; overflow: auto; background: var(--c-surface);
+  border: 1px solid var(--c-border); border-radius: var(--r-xl); box-shadow: var(--sh-sm);
+}
+.hd-foot { font-size: var(--fs-sm); color: var(--c-subtle); font-weight: 500; min-height: 16px; }
+/* працівник бачить лише назву, стан і «Spustiť» — вузька таблиця читається краще */
+.hd-main.is-member .hd-table-card { flex: 0 1 auto; max-width: 900px; }
+
+.sh-table { width: 100%; border-collapse: separate; border-spacing: 0; font-size: var(--fs-md); }
+.sh-table th {
+  position: sticky; top: 0; z-index: 1; background: var(--c-surface-2); border-bottom: 1px solid var(--c-border);
+  padding: 11px 16px; text-align: left; white-space: nowrap; user-select: none;
+  font-size: var(--fs-xs); font-weight: 700; color: var(--c-muted); text-transform: uppercase; letter-spacing: 0.06em;
+}
+.sh-table th.num { text-align: right; }
+.sh-table th.sortable { cursor: pointer; }
+.sh-table th.sortable:hover, .sh-table th.sorted { color: var(--c-text); }
+.sh-table th .ic { width: 12px; height: 12px; margin-left: 4px; vertical-align: -1px; }
+.sh-table th.sorted.asc .ic { transform: rotate(180deg); }
+.sh-table td { padding: 12px 16px; border-bottom: 1px solid var(--c-border); vertical-align: middle; color: var(--c-text-2); }
+.sh-table tbody tr { cursor: pointer; }
+.sh-table tbody tr:hover td { background: var(--c-surface-2); }
+.sh-table tbody tr.is-open td { background: var(--c-primary-soft); }
+.sh-table tbody tr.is-open td:first-child { box-shadow: inset 3px 0 0 var(--c-primary); }
+.sh-table tbody tr:last-child td { border-bottom: none; }
+.sh-table tbody tr:focus-visible { outline: 2px solid var(--c-primary); outline-offset: -2px; }
+.sh-table .num { text-align: right; white-space: nowrap; font-variant-numeric: tabular-nums; }
+.t-name { font-size: var(--fs-lg); font-weight: 700; color: var(--c-text); }
+.t-sub { margin-top: 2px; font-size: var(--fs-sm); color: var(--c-muted); white-space: nowrap; }
+.c-pct { width: 190px; }
+.t-pct { display: flex; align-items: center; gap: 10px; }
+.t-bar { flex: 1; height: 8px; background: var(--c-border); border-radius: 4px; overflow: hidden; }
+.t-bar > div { height: 100%; background: var(--c-success); border-radius: 4px; }
+.t-pct span { min-width: 50px; text-align: right; white-space: nowrap; font-weight: 700; color: var(--c-text); font-variant-numeric: tabular-nums; }
+.c-last { white-space: nowrap; }
+.c-act { width: 1%; white-space: nowrap; text-align: right; }
+.btn-start { min-height: 32px; padding: 0 12px; }
+.sh-table tbody tr:hover .btn-start { background: var(--c-primary); border-color: var(--c-primary); color: var(--c-surface); }
+.hd-table-card .list-empty, .hd-table-card .spinner-container { padding: 48px 20px; }
+/* вужчий ПК: другорядні колонки ховаємо, щоб таблиця не їхала вбік */
+@media (max-width: 1279px) { .sh-table .opt { display: none; } }

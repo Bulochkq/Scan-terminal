@@ -1,6 +1,6 @@
 /**
  * SW.JS — service worker.
- * Остання зміна: v3.1.5. VERSION нижче піднімати при кожному деплої web/.
+ * Остання зміна: v3.1.6. VERSION нижче піднімати при кожному деплої web/.
  *
  * ЩО БУЛО НЕ ТАК У ПОПЕРЕДНІЙ ВЕРСІЇ:
  *  1. Кешувались не ті бібліотеки: jQuery 3.6 з code.jquery.com і html5-qrcode
@@ -20,7 +20,7 @@
  *  - запити до Apps Script не чіпаються взагалі.
  */
 
-const VERSION = 'v20';
+const VERSION = 'v21';
 const SHELL_CACHE = 'terminal-shell-' + VERSION;
 const LIB_CACHE = 'terminal-libs-' + VERSION;
 

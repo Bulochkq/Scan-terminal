@@ -25,6 +25,11 @@ function ok(c, name, extra) { if (c) pass++; else { fail++; console.log('  ✗',
   await cmd('DOM.setFileInputFiles', { nodeId: node.nodeId, files: [xlsx] });
   for (let i = 0; i < 40; i++) { await sleep(250); if (await ev(`!$('#impStepMap').hasClass('hidden')`)) break; }
   ok(await ev(`!$('#impStepMap').hasClass('hidden')`), 'mapping step shown');
+  // v3.1.6: числа й коди з файлу Hayes (82 рядки, сума «Disponibilný stav» = 520 — пораховано окремо в node)
+  ok(await ev(`$('#impSummary').text().indexOf('Plán spolu: 520') !== -1`), 'plan sum chip = 520 (Hayes file)', await ev(`$('#impSummary').text()`));
+  ok(await ev(`$('#impPreviewBody tr').first().find('td').map(function(){return $(this).text()}).get().join('|')`) ===
+     '840087|Hayes Adaptér front I.S. to 180 IS Mount Bracket for 180mm Front Rotor|844171001035|98-18640|6|HAYES', 'first preview row parsed',
+     await ev(`$('#impPreviewBody tr').first().find('td').map(function(){return $(this).text()}).get().join('|')`));
   const n = await ev(`$('#impMapGrid .custom-select-wrapper').length`);
   ok(n >= 5, 'mapping selects are styled', n);
   ok(await ev(`$('#impMapGrid select:visible').length`) === 0, 'no native selects visible');

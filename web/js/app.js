@@ -1,6 +1,9 @@
 /**
  * APP.JS — логіка терміналу.
- * Остання зміна: v3.1.5 (див. PROGRESS.md у корені репо)
+ * Остання зміна: v3.1.6 (див. PROGRESS.md у корені репо)
+ *
+ * v3.1.6: головна на ПК — сторінка на весь екран (#homeDesk, sheets.js); тут лише
+ * перемикання (#setupOverlay.is-home після входу) і дані людини в бічному меню.
  *
  * v3.1.3: вхід за e-mailом і паролем (auth.js), ролі Vlastník / Správca /
  * Pracovník. Список «Pracovník» на старті і спільний адмін-PIN прибрано:
@@ -268,7 +271,7 @@ function showLogin(message) {
   $('#waitingMsg').removeClass('hidden');
   $('#qtyControls').addClass('disabled-ctrl');
 
-  $('#setupOverlay').removeClass('hidden');
+  $('#setupOverlay').removeClass('hidden is-home');
   $('#setupCard').addClass('hidden');
   $('#loginCard').removeClass('hidden');
   setLoginMode('login');
@@ -282,7 +285,10 @@ function showLogin(message) {
 function showSetup() {
   $('#loginCard').addClass('hidden');
   $('#setupCard').removeClass('hidden');
+  // v3.1.6: на ПК (від 1024 px) замість карток — головна на весь екран (app.css)
+  $('#setupOverlay').addClass('is-home');
   renderMe();
+  if (Auth.can('admin')) Sheets.load();
 }
 
 /**
@@ -295,6 +301,11 @@ function renderMe() {
   $('#meName').text(me ? me.name : 'Načítavam účet…');
   $('#meRole').text(me ? Auth.roleLabel(me.role) + ' · ' + me.email : '');
   $('#meAvatar').text(me ? Auth.initials(me.name) : '…').attr('class', 'me-av' + (me ? ' role-' + me.role : ''));
+  // v3.1.6: те саме в бічному меню головної на ПК (e-mail — у підказці, щоб не обрізався)
+  $('#hdName').text(me ? me.name : 'Načítavam účet…');
+  $('#hdRole').text(me ? Auth.roleLabel(me.role) : '');
+  $('#hdAvatar').text(me ? Auth.initials(me.name) : '…').attr('class', 'me-av' + (me ? ' role-' + me.role : ''));
+  $('#homeDesk .hd-me').attr('title', me ? me.name + ' · ' + me.email : '');
   currentUser = me ? me.name : '';
   if (Auth.can('admin')) {
     if ($('#adminCard').hasClass('hidden') && !adminClosedByUser) showAdminPanel();
@@ -303,6 +314,7 @@ function renderMe() {
     closeAdminPanel();
     $('#adminOpenBtn').addClass('hidden');
   }
+  Sheets.render();                  // таблиця на ПК: у správcu з цифрами, у працівника — без
 }
 
 function doLogin(ev) {
@@ -510,6 +522,7 @@ function toggleFilterPopover(e) {
 
 function init() {
   $('.js-version').text('v' + CFG.APP_VERSION);
+  $('.js-ver').text(CFG.APP_VERSION);
   $('.js-site').text(CFG.SITE_NAME || '—');
 
   if (/Mobi|Android|iPhone|iPad/i.test(navigator.userAgent)) {
@@ -673,13 +686,18 @@ function updateSheetSelects(sheets) {
     });
   }
   renderCustomSelects($s.closest('.su-field'));
+  Sheets.setBasic(sheets);          // v3.1.6: таблиця працівника на головній ПК
 }
 
-/** Оновити склади всюди: вибір для терміналу і список в адмінці. */
+/**
+ * Оновити склади всюди: вибір для терміналу і список в адмінці.
+ * v3.1.6: список správcu вантажиться завжди — на ПК він є головною сторінкою,
+ * навіть коли адмін-картку на телефоні закрили.
+ */
 function refreshSheetList() {
   $('.ref-btn').addClass('busy');
   loadInitData();
-  if (Auth.can('admin') && !$('#adminCard').hasClass('hidden')) Sheets.load();
+  if (Auth.can('admin')) Sheets.load(true);
   setTimeout(function () { $('.ref-btn').removeClass('busy'); }, 800);
 }
 window.refreshSheetList = refreshSheetList;
@@ -735,8 +753,12 @@ function reqCreateSheet() {
     setAdminBusy(true, 'Vytváram sklad…');
     return API.sheetCreate(n.trim()).then(function (r) {
       setAdminBusy(false);
-      refreshSheetList();
-      showMsg('Hotovo', r.msg + '\nDo skladu teraz nahrajte tovar: kliknite naň v zozname a zvoľte „Import zo súboru“.');
+      loadInitData();
+      // v3.1.6: одразу відкрити картку нового складу — там і «Import zo súboru»
+      return Sheets.load(true).then(function () {
+        if (r.id) Sheets.openDetail(r.id);
+        showMsg('Hotovo', r.msg + '\nTeraz doň nahrajte tovar tlačidlom „Import zo súboru“ v karte skladu.');
+      });
     });
   }).catch(function (e) { setAdminBusy(false); showMsg('Chyba', errText(e)); });
 }
@@ -942,7 +964,7 @@ function onListNote(id, note) {
 function onTableSaved(ctx) {
   if (ctx === 'terminal' && currentSheetId) refresh(false);
   // v3.1.5: таблицю відкривали з картки складу — оновити цифри в картці й у списку складів
-  else if (ctx === 'admin' && Auth.can('admin')) Sheets.load();
+  else if (ctx === 'admin' && Auth.can('admin')) Sheets.load(true);
 }
 
 // ------------------------------------------------------------ робота терміналу
